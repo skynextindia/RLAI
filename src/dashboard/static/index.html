@@ -72,7 +72,7 @@
             </header>
 
             <!-- Major Metrics -->
-            <div class="grid grid-cols-5 gap-4">
+            <div class="grid grid-cols-5 gap-4 mb-4">
                 <div class="stat-card p-4 bg-black/40 border border-gray-800/50" style="border-left: 3px solid var(--accent-blue)">
                     <p class="text-[9px] text-gray-500 font-bold uppercase tracking-tighter mb-1">Market Price</p>
                     <div id="price" class="text-2xl font-black mono text-cyan-400">0.00</div>
@@ -85,9 +85,9 @@
                     <p class="text-[9px] text-gray-500 font-bold uppercase tracking-tighter mb-1">Unrealized PnL</p>
                     <div id="pnl" class="text-2xl font-black mono text-green-400">$0.00</div>
                 </div>
-                <div id="posCard" class="stat-card p-4 bg-black/40 border border-gray-800/50" style="border-left: 3px solid var(--accent-red)">
+                <div id="posCard" class="stat-card p-4 bg-black/40 border border-gray-800/50" style="border-left: 3px solid var(--accent-blue)">
                     <p class="text-[9px] text-gray-500 font-bold uppercase tracking-tighter mb-1">Market Position</p>
-                    <div id="pos" class="text-2xl font-black mono text-red-400">FLAT</div>
+                    <div id="pos" class="text-2xl font-black mono text-gray-500 text-sm">FLAT</div>
                 </div>
                 <div class="stat-card p-4 bg-black/40 border border-gray-800/50" style="border-left: 3px solid var(--accent-blue)">
                     <p class="text-[9px] text-gray-500 font-bold uppercase tracking-tighter mb-1">Win Rate</p>
@@ -96,7 +96,11 @@
             </div>
 
             <!-- Performance Mini-Array -->
-            <div class="grid grid-cols-2 gap-4">
+            <div class="grid grid-cols-3 gap-4 mb-6">
+                <div class="bg-black/20 p-3 border border-gray-800/30 flex justify-between items-center">
+                    <span class="text-[9px] text-gray-500 uppercase font-bold">Neural Pulse (TPS)</span>
+                    <span id="tps" class="text-sm font-black mono text-cyan-400">0.0</span>
+                </div>
                 <div class="bg-black/20 p-3 border border-gray-800/30 flex justify-between items-center">
                     <span class="text-[9px] text-gray-500 uppercase font-bold">Profit Factor</span>
                     <span id="stat_pf" class="text-sm font-black mono text-green-500">0.00</span>
@@ -110,8 +114,9 @@
             <!-- Tactical Trade Forensics -->
             <div id="forensicsPanel" class="bg-blue-900/10 border border-blue-500/30 p-4 hidden">
                 <h3 class="text-[10px] font-black uppercase tracking-widest text-blue-400 mb-3">Live Trade Forensics</h3>
-                <div class="grid grid-cols-5 gap-4 mb-4">
+                <div class="grid grid-cols-6 gap-4 mb-4">
                     <div><p class="text-[8px] text-gray-600 uppercase font-bold">Entry</p><p id="f_entry" class="text-xs font-bold mono">0.00</p></div>
+                    <div><p class="text-[8px] text-blue-900 uppercase font-bold">Peak</p><p id="f_peak" class="text-xs font-bold mono text-blue-400">0.00</p></div>
                     <div><p class="text-[8px] text-red-900 uppercase font-bold">SL</p><p id="f_sl" class="text-xs font-bold mono text-red-500">0.00</p></div>
                     <div><p class="text-[8px] text-green-900 uppercase font-bold">TP</p><p id="f_tp" class="text-xs font-bold mono text-green-500">0.00</p></div>
                     <div><p class="text-[8px] text-gray-600 uppercase font-bold">Lots</p><p id="f_lots" class="text-xs font-bold mono">0.00</p></div>
@@ -128,7 +133,10 @@
                 <div class="bg-black/40 p-4 border border-gray-800/50">
                     <div class="flex justify-between items-center mb-4">
                         <h3 class="text-xs font-black uppercase tracking-widest text-gray-400">Neural Policy Ensemble <span class="text-[10px] font-normal text-gray-600">(PPO + Transformer + XGBoost)</span></h3>
-                        <div id="entropyVal" class="text-[10px] mono text-blue-500">ENTROPY: 0.0000</div>
+                        <div class="flex items-center space-x-4">
+                            <div id="ticksVal" class="text-[10px] mono text-cyan-500">TICKS: 0</div>
+                            <div id="entropyVal" class="text-[10px] mono text-blue-500">ENTROPY: 0.0000</div>
+                        </div>
                     </div>
                     <div class="space-y-4">
                         <div>
@@ -310,6 +318,15 @@
                 document.getElementById('balance').innerText = `$${data.balance.toLocaleString()}`;
                 document.getElementById('pnl').innerText = `$${data.pnl.toFixed(2)}`;
                 
+                // Update Neural Pulse (TPS)
+                const tpsEl = document.getElementById('tps');
+                if (tpsEl && data.tps !== undefined) {
+                    tpsEl.innerText = data.tps.toFixed(1);
+                    if (data.tps > 5.0) tpsEl.className = 'text-sm font-black mono text-red-500 animate-pulse';
+                    else if (data.tps > 2.0) tpsEl.className = 'text-sm font-black mono text-yellow-400';
+                    else tpsEl.className = 'text-sm font-black mono text-cyan-400';
+                }
+
                 const posEl = document.getElementById('pos');
                 const posCard = document.getElementById('posCard');
                 if (data.action === 1) { 
@@ -352,6 +369,10 @@
                     document.getElementById('decayVal').innerText = `-${data.diagnostics.decay.toFixed(3)}`;
                     document.getElementById('entropyVal').innerText = `ENTROPY: ${data.diagnostics.entropy.toFixed(4)}`;
                     document.getElementById('lastSync').innerText = `LAST SYNC: ${data.diagnostics.last_brain_sync}`;
+                    
+                    if (data.diagnostics.total_ticks !== undefined) {
+                        document.getElementById('ticksVal').innerText = `TICKS: ${data.diagnostics.total_ticks.toLocaleString()}`;
+                    }
                 }
 
                 // Update TF Matrix
@@ -380,6 +401,7 @@
                     if (data.action !== 0) {
                         document.getElementById('forensicsPanel').classList.remove('hidden');
                         document.getElementById('f_entry').innerText = data.trade_forensics.entry.toFixed(2);
+                        document.getElementById('f_peak').innerText = `$${data.trade_forensics.peak_pnl.toFixed(2)}`;
                         document.getElementById('f_sl').innerText = data.trade_forensics.sl.toFixed(2);
                         document.getElementById('f_tp').innerText = data.trade_forensics.tp.toFixed(2);
                         document.getElementById('f_lots').innerText = data.trade_forensics.lot_size.toFixed(2);
