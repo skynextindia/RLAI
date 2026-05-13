@@ -320,6 +320,60 @@ def data_callback(data):
                 save_memory()
                 globals()['max_pnl_reached'] = 0.0
                 
+                # --- INSTANT RE-ENTRY PROTOCOL ---
+                # Trade closed by SL/TP — immediately evaluate for new entry
+                ai_log(f"[RE-ENTRY] Trade closed. Running immediate neural re-evaluation...")
+                
+                try:
+                    re_state = env._extract_state(features)
+                    re_state_tensor = torch.tensor(re_state, dtype=torch.float32).unsqueeze(0)
+                    re_sequence = env._extract_sequence(features, timeframe='4h', seq_len=50)
+                    re_seq_tensor = torch.tensor(re_sequence, dtype=torch.float32).unsqueeze(0)
+                    
+                    # Recompute neural policy with fresh post-closure data
+                    _compute_neural_policy(re_state, re_seq_tensor, re_state_tensor)
+                    re_probs = globals()['ensemble_probs']
+                    re_action = np.argmax(re_probs)
+                    re_confidence = float(re_probs[re_action])
+                    
+                    action_name = ['HOLD', 'BUY', 'SELL'][re_action]
+                    ai_log(f"[RE-ENTRY] Neural Decision: {action_name} (Confidence: {re_confidence:.1%})")
+                    
+                    if re_action != 0:  # Not HOLD
+                        lot_size = risk_engine.calculate_lot_size(env.balance, re_confidence, current_price)
+                        h4_df_re = features.get('4h')
+                        atr = float(h4_df_re['ATR'].iloc[-1]) if h4_df_re is not None and not h4_df_re.empty else current_price * 0.005
+                        sl_dist = (atr * 1.5) if atr > 0 else (current_price * 0.005)
+                        tp_dist = (atr * 3.0) if atr > 0 else (current_price * 0.01)
+                        
+                        if re_action == 1:  # BUY
+                            new_ticket = client.send_order("BUY", data['symbol'], lot_size, sl=current_price - sl_dist, tp=current_price + tp_dist)
+                            globals()['last_sl'] = current_price - sl_dist
+                            globals()['last_tp'] = current_price + tp_dist
+                        elif re_action == 2:  # SELL
+                            new_ticket = client.send_order("SELL", data['symbol'], lot_size, sl=current_price + sl_dist, tp=current_price - tp_dist)
+                            globals()['last_sl'] = current_price + sl_dist
+                            globals()['last_tp'] = current_price - tp_dist
+                        
+                        if new_ticket is not None:
+                            env.step(re_action, current_price, features, lot_size=lot_size, tps=tps)
+                            active_rl_trade["ticket"] = new_ticket
+                            active_rl_trade["state"] = re_state_tensor.squeeze(0)
+                            active_rl_trade["action"] = re_action
+                            active_rl_trade["start_time"] = dt.now().isoformat()
+                            globals()['last_start_time'] = active_rl_trade["start_time"]
+                            globals()['last_lot_size'] = lot_size
+                            globals()['last_reasoning'] = f"RE-ENTRY {action_name} | Confidence: {re_confidence:.1%} | Instant post-closure execution."
+                            save_memory()
+                            ai_log(f"[RE-ENTRY] ✓ New {action_name} opened at {current_price:.2f} (Lot: {lot_size})")
+                        else:
+                            ai_log(f"[RE-ENTRY] Order rejected by broker.")
+                    else:
+                        globals()['last_reasoning'] = f"RE-ENTRY HOLD | No conviction ({re_confidence:.1%}). Waiting for next H4 candle."
+                        ai_log(f"[RE-ENTRY] No conviction. AI will wait for next H4 candle.")
+                except Exception as re_err:
+                    ai_log(f"[RE-ENTRY] Error: {re_err}")
+                
         # --- NEURAL PULSE SENSOR (TPS) ---
         global tick_timestamps
         if 'tick_timestamps' not in globals(): tick_timestamps = []
