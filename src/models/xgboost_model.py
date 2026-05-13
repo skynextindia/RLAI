@@ -14,8 +14,8 @@ class XGBoostModel:
 
     def predict_confidence(self, state):
         if not self.is_trained:
-            # Return uniform probability if not yet trained
-            return np.array([0.33, 0.33, 0.34])
+            # Return uniform probability in 2D format (batch_size=1, num_classes=3)
+            return np.array([[0.33, 0.33, 0.34]])
         
         # state expected as (batch, features)
         return self.model.predict_proba(state)

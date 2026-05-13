@@ -6,6 +6,17 @@ class MTFAggregator:
         self.timeframes = timeframes
         self.tick_buffer = []
         self.engineer = FeatureEngineer()
+        self.historical_data = {} # Cache for backfilled data
+        
+    def seed_historical_data(self, tf, df):
+        if tf in self.historical_data:
+            # Smart Stitching: Keep existing, append new non-overlapping
+            existing = self.historical_data[tf]
+            new_data = df[~df.index.isin(existing.index)]
+            self.historical_data[tf] = pd.concat([existing, new_data]).sort_index()
+        else:
+            self.historical_data[tf] = df
+
         
     def add_tick(self, tick_data):
         self.tick_buffer.append({
@@ -30,6 +41,13 @@ class MTFAggregator:
             ohlc['volume'] = df['volume'].resample(tf).sum()
             ohlc.dropna(inplace=True)
             
+            # Merge with historical if exists
+            if tf in self.historical_data:
+                # Remove overlapping indices from historical
+                hist = self.historical_data[tf]
+                hist = hist[~hist.index.isin(ohlc.index)]
+                ohlc = pd.concat([hist, ohlc]).sort_index()
+
             if len(ohlc) > 0:  
                 try:
                     ohlc = self.engineer.calculate_atr(ohlc)

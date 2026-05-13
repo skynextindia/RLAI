@@ -65,6 +65,21 @@ def get_trades():
     except Exception as e:
         return {"error": str(e)}
 
+@app.get("/api/logs")
+def get_logs():
+    log_path = "axon_ai.log"
+    if not os.path.exists(log_path):
+        return ["> No logs found. Waiting for engine..."]
+    try:
+        # Open with explicit sharing for Windows
+        with open(log_path, "r", encoding="utf-8", errors="ignore") as f:
+            lines = f.readlines()
+            if not lines:
+                return ["> Synchronizing AI Monologue..."]
+            return [line.strip() for line in lines[-30:]] # Last 30 lines
+    except Exception as e:
+        return [f"> [SYSTEM ERROR] Log Access Restricted: {str(e)}"]
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
