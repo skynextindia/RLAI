@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+venv/
+ENV/
+.vscode/
+*.db
+*.log
+telemetry.json
+commands.json
+active_trade.json
+*.pth
+data/raw/
+logs/

@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Axon Institutional Terminal</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #050505;
+            color: #ffffff;
+            background-image: radial-gradient(circle at 50% 0%, #1a1a2e 0%, #050505 50%);
+            background-repeat: no-repeat;
+            background-size: cover;
+            min-height: 100vh;
+        }
+        .glass-panel {
+            background: rgba(20, 20, 25, 0.6);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .glass-panel:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 30px rgba(0, 255, 136, 0.1);
+        }
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .glow-text-green { text-shadow: 0 0 10px rgba(0, 255, 136, 0.5); color: #00ff88; }
+        .glow-text-red { text-shadow: 0 0 10px rgba(255, 60, 100, 0.5); color: #ff3c64; }
+        .glow-text-blue { text-shadow: 0 0 10px rgba(0, 195, 255, 0.5); color: #00c3ff; }
+        
+        .progress-bar {
+            height: 8px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            transition: width 0.3s ease;
+        }
+    </style>
+</head>
+<body class="p-6">
+
+    <div class="max-w-7xl mx-auto space-y-6">
+        <!-- Header -->
+        <header class="flex justify-between items-center mb-10">
+            <div>
+                <h1 class="text-4xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-500">
+                    AXON <span class="text-blue-500">TERMINAL</span>
+                </h1>
+                <p class="text-gray-400 text-sm mt-1 uppercase tracking-widest font-semibold">Institutional RL Engine</p>
+            </div>
+            <div class="flex items-center space-x-3">
+                <div class="h-3 w-3 rounded-full bg-green-500 animate-pulse shadow-[0_0_10px_#00ff88]"></div>
+                <span class="text-sm font-semibold text-green-500 tracking-wide uppercase">System Live</span>
+            </div>
+        </header>
+
+        <!-- Top Metrics -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <div class="glass-panel p-6">
+                <p class="text-xs text-gray-400 uppercase tracking-wider font-semibold mb-1">Portfolio Balance</p>
+                <div class="text-3xl font-bold mono" id="val-balance">$0.00</div>
+            </div>
+            <div class="glass-panel p-6">
+                <p class="text-xs text-gray-400 uppercase tracking-wider font-semibold mb-1">Unrealized PnL</p>
+                <div class="text-3xl font-bold mono" id="val-pnl">$0.00</div>
+            </div>
+            <div class="glass-panel p-6">
+                <p class="text-xs text-gray-400 uppercase tracking-wider font-semibold mb-1">Neural Confidence</p>
+                <div class="text-3xl font-bold mono glow-text-blue" id="val-conf">0.0%</div>
+            </div>
+            <div class="glass-panel p-6">
+                <p class="text-xs text-gray-400 uppercase tracking-wider font-semibold mb-1">Market Position</p>
+                <div class="text-3xl font-bold tracking-widest" id="val-pos">FLAT</div>
+            </div>
+        </div>
+
+        <!-- Middle Section -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Asset & Pricing -->
+            <div class="glass-panel p-6 lg:col-span-1">
+                <h3 class="text-xl font-bold mb-6 text-gray-200">Execution Vector</h3>
+                <div class="space-y-4">
+                    <div class="flex justify-between items-center border-b border-white/5 pb-3">
+                        <span class="text-gray-400 text-sm">Target Asset</span>
+                        <span class="font-bold tracking-wide" id="val-symbol">BTCUSDm</span>
+                    </div>
+                    <div class="flex justify-between items-center border-b border-white/5 pb-3">
+                        <span class="text-gray-400 text-sm">Live Price</span>
+                        <span class="font-bold mono text-lg" id="val-price">0.00</span>
+                    </div>
+                    <div class="flex justify-between items-center border-b border-white/5 pb-3">
+                        <span class="text-gray-400 text-sm">Entry Limit</span>
+                        <span class="font-bold mono" id="val-entry">0.00</span>
+                    </div>
+                    <div class="flex justify-between items-center border-b border-white/5 pb-3">
+                        <span class="text-gray-400 text-sm">Stop Loss</span>
+                        <span class="font-bold mono text-red-400" id="val-sl">0.00</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-gray-400 text-sm">Take Profit</span>
+                        <span class="font-bold mono text-green-400" id="val-tp">0.00</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Neural Policy Matrix -->
+            <div class="glass-panel p-6 lg:col-span-2 flex flex-col justify-between">
+                <h3 class="text-xl font-bold mb-2 text-gray-200">Neural Policy Matrix</h3>
+                <p class="text-xs text-gray-500 mb-6">PPO + Transformer + XGBoost Ensemble Probabilities</p>
+                
+                <div class="space-y-6">
+                    <div>
+                        <div class="flex justify-between mb-2">
+                            <span class="text-sm font-semibold text-gray-300">HOLD</span>
+                            <span class="text-sm mono" id="prob-hold-txt">0%</span>
+                        </div>
+                        <div class="progress-bar"><div class="progress-fill bg-gray-500" id="prob-hold-bar" style="width: 0%"></div></div>
+                    </div>
+                    <div>
+                        <div class="flex justify-between mb-2">
+                            <span class="text-sm font-semibold text-green-400">LONG</span>
+                            <span class="text-sm mono text-green-400" id="prob-long-txt">0%</span>
+                        </div>
+                        <div class="progress-bar"><div class="progress-fill bg-green-500" id="prob-long-bar" style="width: 0%; box-shadow: 0 0 10px #22c55e;"></div></div>
+                    </div>
+                    <div>
+                        <div class="flex justify-between mb-2">
+                            <span class="text-sm font-semibold text-red-400">SHORT</span>
+                            <span class="text-sm mono text-red-400" id="prob-short-txt">0%</span>
+                        </div>
+                        <div class="progress-bar"><div class="progress-fill bg-red-500" id="prob-short-bar" style="width: 0%; box-shadow: 0 0 10px #ef4444;"></div></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Equity Curve Chart -->
+        <div class="glass-panel p-6">
+            <h3 class="text-xl font-bold mb-2 text-gray-200">Lifetime Equity Curve</h3>
+            <p class="text-xs text-gray-500 mb-4">Cumulative PnL from MT5 Executions</p>
+            <div class="w-full h-72">
+                <canvas id="equityChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Command Control Center (WEB IO) -->
+        <div class="glass-panel p-6 border-t-2 border-blue-500/30">
+            <h3 class="text-xl font-bold mb-6 text-gray-200">Command Control Center</h3>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <button onclick="sendCommand('CLOSE_ALL')" class="bg-red-900/40 hover:bg-red-800/60 border border-red-500 text-red-100 py-3 rounded-lg font-bold transition uppercase tracking-widest text-sm">Close All Trades</button>
+                <button onclick="sendCommand('PAUSE')" class="bg-yellow-900/40 hover:bg-yellow-800/60 border border-yellow-500 text-yellow-100 py-3 rounded-lg font-bold transition uppercase tracking-widest text-sm">Pause Engine</button>
+                <button onclick="sendCommand('RESUME')" class="bg-green-900/40 hover:bg-green-800/60 border border-green-500 text-green-100 py-3 rounded-lg font-bold transition uppercase tracking-widest text-sm">Resume Engine</button>
+                <button onclick="sendCommand('KILL')" class="bg-white/5 hover:bg-white/10 border border-white/20 text-white py-3 rounded-lg font-bold transition uppercase tracking-widest text-sm">Kill Switch</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // WEB IO Command Function
+        async function sendCommand(action) {
+            if(!confirm(`Are you sure you want to ${action}?`)) return;
+            try {
+                const res = await fetch('/api/command', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: action, params: {} })
+                });
+                const result = await res.json();
+                alert(result.status);
+            } catch(e) { alert("Command Failed: " + e); }
+        }
+
+        // Chart Initialization
+        const ctx = document.getElementById('equityChart').getContext('2d');
+        const equityChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Cumulative PnL ($)',
+                    data: [],
+                    borderColor: '#00ff88',
+                    backgroundColor: 'rgba(0, 255, 136, 0.1)',
+                    borderWidth: 2,
+                    pointRadius: 3,
+                    pointBackgroundColor: '#00ff88',
+                    fill: true,
+                    tension: 0.3
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#8b949e' } },
+                    y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#8b949e' } }
+                }
+            }
+        });
+
+        // Polling Telemetry Data
+        async function fetchTelemetry() {
+            try {
+                const res = await fetch('/api/telemetry');
+                const data = await res.json();
+                if(data.error) return;
+
+                // Format currency
+                const fmtCur = (val) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
+                
+                document.getElementById('val-balance').innerText = fmtCur(data.balance);
+                
+                const pnlEl = document.getElementById('val-pnl');
+                pnlEl.innerText = fmtCur(data.pnl);
+                pnlEl.className = `text-3xl font-bold mono ${data.pnl > 0 ? 'glow-text-green' : data.pnl < 0 ? 'glow-text-red' : ''}`;
+
+                document.getElementById('val-conf').innerText = (data.confidence * 100).toFixed(1) + "%";
+
+                const posEl = document.getElementById('val-pos');
+                if (data.action === 1) {
+                    posEl.innerText = "LONG"; posEl.className = "text-3xl font-bold tracking-widest glow-text-green";
+                } else if (data.action === -1) {
+                    posEl.innerText = "SHORT"; posEl.className = "text-3xl font-bold tracking-widest glow-text-red";
+                } else {
+                    posEl.innerText = "FLAT"; posEl.className = "text-3xl font-bold tracking-widest text-gray-500";
+                }
+
+                document.getElementById('val-symbol').innerText = data.symbol;
+                document.getElementById('val-price').innerText = data.price.toFixed(2);
+                document.getElementById('val-entry').innerText = data.entry === 0 ? "—" : data.entry.toFixed(2);
+                document.getElementById('val-sl').innerText = data.sl === 0 ? "—" : data.sl.toFixed(2);
+                document.getElementById('val-tp').innerText = data.tp === 0 ? "—" : data.tp.toFixed(2);
+
+                if (data.probs && data.probs.length === 3) {
+                    const h = (data.probs[0]*100).toFixed(1);
+                    const l = (data.probs[1]*100).toFixed(1);
+                    const s = (data.probs[2]*100).toFixed(1);
+
+                    document.getElementById('prob-hold-txt').innerText = h + '%';
+                    document.getElementById('prob-hold-bar').style.width = h + '%';
+                    
+                    document.getElementById('prob-long-txt').innerText = l + '%';
+                    document.getElementById('prob-long-bar').style.width = l + '%';
+                    
+                    document.getElementById('prob-short-txt').innerText = s + '%';
+                    document.getElementById('prob-short-bar').style.width = s + '%';
+                }
+
+            } catch(e) { console.error(e); }
+        }
+
+        // Polling Trades Database
+        async function fetchTrades() {
+            try {
+                const res = await fetch('/api/trades');
+                const trades = await res.json();
+                if(trades.error || trades.length === 0) return;
+
+                let cumulative = 0;
+                const labels = [];
+                const data = [];
+
+                trades.forEach(t => {
+                    cumulative += t.profit;
+                    const date = new Date(t.timestamp);
+                    labels.push(`${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`);
+                    data.push(cumulative);
+                });
+
+                equityChart.data.labels = labels;
+                equityChart.data.datasets[0].data = data;
+                equityChart.update();
+            } catch(e) { console.error(e); }
+        }
+
+        setInterval(fetchTelemetry, 500); // 2 FPS refresh for snappy metrics
+        setInterval(fetchTrades, 5000);   // 5s refresh for database
+        
+        fetchTelemetry();
+        fetchTrades();
+    </script>
+</body>
+</html>

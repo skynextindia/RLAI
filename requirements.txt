@@ -1,0 +1,10 @@
+pyzmq
+pandas
+numpy
+torch
+xgboost
+gymnasium
+streamlit
+scikit-learn
+redis
+psycopg2-binary
