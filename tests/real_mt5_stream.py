@@ -12,7 +12,7 @@ def stream_real_data():
     push_socket = context.socket(zmq.PUSH)
     push_socket.connect("tcp://127.0.0.1:5555")
 
-    # Update to your active symbol in MT5 Market Watch
+    # Exness feed requires Uppercase for ticks
     symbol = "BTCUSDm" 
     
     # Ensure symbol is visible
@@ -20,10 +20,12 @@ def stream_real_data():
     
     print(f"Streaming REAL tick data for {symbol} to ZMQ...")
     
+    last_time_msc = 0
+    
     try:
         while True:
             tick = mt5.symbol_info_tick(symbol)
-            if tick:
+            if tick and tick.time_msc != last_time_msc:
                 data = {
                     "symbol": symbol,
                     "ask": tick.ask,
@@ -31,8 +33,9 @@ def stream_real_data():
                     "volume": tick.volume,
                 }
                 push_socket.send_string(json.dumps(data))
-                print(f"Pushed: {data}")
-            time.sleep(0.5)
+                last_time_msc = tick.time_msc
+                
+            time.sleep(0.01) # High-frequency polling
     except KeyboardInterrupt:
         pass
     finally:

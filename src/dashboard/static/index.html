@@ -25,22 +25,29 @@
         .mono { font-family: 'JetBrains Mono', monospace; }
         .war-room-grid {
             display: grid;
-            grid-template-columns: 1fr 350px;
+            grid-template-columns: 1fr;
             gap: 1px;
             background: var(--border-gray);
-            height: 100vh;
+            min-height: 100vh;
+        }
+        @media (min-width: 1024px) {
+            .war-room-grid {
+                grid-template-columns: 1fr 350px;
+                height: 100vh;
+                overflow: hidden;
+            }
         }
         .panel {
             background: var(--panel-bg);
-            padding: 1.5rem;
+            padding: 1rem;
             overflow-y: auto;
+            min-width: 0;
         }
         .stat-card {
             border-left: 3px solid var(--accent-blue);
             background: rgba(255,255,255,0.02);
-            padding: 1rem;
+            padding: 0.75rem;
         }
-        .neon-text { text-shadow: 0 0 10px rgba(0,122,255,0.5); }
         .btn-io {
             border: 1px solid var(--border-gray);
             transition: all 0.2s;
@@ -55,7 +62,6 @@
 </head>
 <body>
     <div class="war-room-grid">
-        <!-- Main Tactical Display -->
         <div class="panel flex flex-col space-y-6">
             <header class="flex justify-between items-center border-b border-gray-800 pb-4">
                 <div>
@@ -63,7 +69,7 @@
                     <p class="text-xs text-gray-500 uppercase tracking-widest mono">Institutional Neural Execution Engine</p>
                 </div>
                 <div class="flex items-center space-x-4">
-                    <div id="regimeBadge" class="px-3 py-1 bg-blue-900/30 border border-blue-500/50 text-blue-400 text-[10px] font-bold uppercase tracking-widest">Stable Regime</div>
+                    <div id="regimeBadge" class="px-3 py-1 bg-blue-900/30 border border-blue-500/50 text-blue-400 text-[10px] font-bold uppercase tracking-widest">Neural Regime</div>
                     <div class="flex items-center space-x-2">
                         <div class="h-2 w-2 rounded-full bg-green-500 animate-pulse"></div>
                         <span class="text-xs font-bold text-green-500 uppercase">Live Connection</span>
@@ -71,438 +77,136 @@
                 </div>
             </header>
 
-            <!-- Major Metrics -->
-            <div class="grid grid-cols-5 gap-4 mb-4">
-                <div class="stat-card p-4 bg-black/40 border border-gray-800/50" style="border-left: 3px solid var(--accent-blue)">
-                    <p class="text-[9px] text-gray-500 font-bold uppercase tracking-tighter mb-1">Market Price</p>
-                    <div id="price" class="text-2xl font-black mono text-cyan-400">0.00</div>
-                </div>
-                <div class="stat-card p-4 bg-black/40 border border-gray-800/50" style="border-left: 3px solid var(--accent-blue)">
-                    <p class="text-[9px] text-gray-500 font-bold uppercase tracking-tighter mb-1">Portfolio Equity</p>
-                    <div id="balance" class="text-2xl font-black mono text-white">$0.00</div>
-                </div>
-                <div class="stat-card p-4 bg-black/40 border border-gray-800/50" style="border-left: 3px solid var(--accent-green)">
-                    <p class="text-[9px] text-gray-500 font-bold uppercase tracking-tighter mb-1">Unrealized PnL</p>
-                    <div id="pnl" class="text-2xl font-black mono text-green-400">$0.00</div>
-                </div>
-                <div id="posCard" class="stat-card p-4 bg-black/40 border border-gray-800/50" style="border-left: 3px solid var(--accent-blue)">
-                    <p class="text-[9px] text-gray-500 font-bold uppercase tracking-tighter mb-1">Market Position</p>
-                    <div id="pos" class="text-2xl font-black mono text-gray-500 text-sm">FLAT</div>
-                </div>
-                <div class="stat-card p-4 bg-black/40 border border-gray-800/50" style="border-left: 3px solid var(--accent-blue)">
-                    <p class="text-[9px] text-gray-500 font-bold uppercase tracking-tighter mb-1">Win Rate</p>
-                    <div id="stat_winrate" class="text-2xl font-black mono text-blue-400">0.0%</div>
-                </div>
+            <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-4">
+                <div class="stat-card"><p class="text-[9px] text-gray-500 uppercase font-bold mb-1">Market Price</p><div id="price" class="text-2xl font-black mono text-cyan-400">0.00</div></div>
+                <div class="stat-card"><p class="text-[9px] text-gray-500 uppercase font-bold mb-1">Portfolio Equity</p><div id="balance" class="text-2xl font-black mono text-white">$0.00</div></div>
+                <div class="stat-card"><p class="text-[9px] text-gray-500 uppercase font-bold mb-1">Unrealized PnL</p><div id="pnl" class="text-2xl font-black mono text-green-400">$0.00</div></div>
+                <div id="posCard" class="stat-card"><p class="text-[9px] text-gray-500 uppercase font-bold mb-1">Position</p><div id="pos" class="text-2xl font-black mono text-gray-500">FLAT</div></div>
+                <div class="stat-card"><p class="text-[9px] text-gray-500 uppercase font-bold mb-1">Win Rate</p><div id="stat_winrate" class="text-2xl font-black mono text-blue-400">0.0%</div></div>
             </div>
 
-            <!-- Performance Mini-Array -->
-            <div class="grid grid-cols-3 gap-4 mb-6">
-                <div class="bg-black/20 p-3 border border-gray-800/30 flex justify-between items-center">
-                    <span class="text-[9px] text-gray-500 uppercase font-bold">Neural Pulse (TPS)</span>
-                    <span id="tps" class="text-sm font-black mono text-cyan-400">0.0</span>
-                </div>
-                <div class="bg-black/20 p-3 border border-gray-800/30 flex justify-between items-center">
-                    <span class="text-[9px] text-gray-500 uppercase font-bold">Profit Factor</span>
-                    <span id="stat_pf" class="text-sm font-black mono text-green-500">0.00</span>
-                </div>
-                <div class="bg-black/20 p-3 border border-gray-800/30 flex justify-between items-center">
-                    <span class="text-[9px] text-gray-500 uppercase font-bold">Max Drawdown</span>
-                    <span id="stat_dd" class="text-sm font-black mono text-red-500">$0.00</span>
-                </div>
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+                <div class="bg-black/20 p-3 border border-gray-800/30 flex justify-between items-center"><span class="text-[9px] text-gray-500 uppercase">TPS</span><span id="tps" class="text-sm font-black mono text-cyan-400">0.0</span></div>
+                <div class="bg-black/20 p-3 border border-gray-800/30 flex justify-between items-center"><span class="text-[9px] text-gray-500 uppercase">Ticks</span><span id="ticksVal" class="text-sm font-black mono text-blue-400">0</span></div>
+                <div class="bg-black/20 p-3 border border-gray-800/30 flex justify-between items-center"><span class="text-[9px] text-gray-500 uppercase">Profit Factor</span><span id="stat_pf" class="text-sm font-black mono text-green-500">0.00</span></div>
+                <div class="bg-black/20 p-3 border border-gray-800/30 flex justify-between items-center"><span class="text-[9px] text-gray-500 uppercase">Spread</span><span id="stat_spread" class="text-sm font-black mono text-orange-400">0.00</span></div>
             </div>
 
-            <!-- Tactical Trade Forensics -->
-            <div id="forensicsPanel" class="bg-blue-900/10 border border-blue-500/30 p-4 hidden">
+            <div id="forensicsPanel" class="bg-blue-900/10 border border-blue-500/30 p-4">
                 <h3 class="text-[10px] font-black uppercase tracking-widest text-blue-400 mb-3">Live Trade Forensics</h3>
-                <div class="grid grid-cols-6 gap-4 mb-4">
-                    <div><p class="text-[8px] text-gray-600 uppercase font-bold">Entry</p><p id="f_entry" class="text-xs font-bold mono">0.00</p></div>
-                    <div><p class="text-[8px] text-blue-900 uppercase font-bold">Peak</p><p id="f_peak" class="text-xs font-bold mono text-blue-400">0.00</p></div>
-                    <div><p class="text-[8px] text-red-900 uppercase font-bold">SL</p><p id="f_sl" class="text-xs font-bold mono text-red-500">0.00</p></div>
-                    <div><p class="text-[8px] text-green-900 uppercase font-bold">TP</p><p id="f_tp" class="text-xs font-bold mono text-green-500">0.00</p></div>
-                    <div><p class="text-[8px] text-gray-600 uppercase font-bold">Lots</p><p id="f_lots" class="text-xs font-bold mono">0.00</p></div>
-                    <div><p class="text-[8px] text-gray-600 uppercase font-bold">Start</p><p id="f_time" class="text-xs font-bold mono">--:--</p></div>
+                <div class="grid grid-cols-4 lg:grid-cols-7 gap-3 mb-4">
+                    <div><p class="text-[8px] text-gray-600 uppercase">Entry</p><p id="f_entry" class="text-xs font-bold mono">0.00</p></div>
+                    <div><p class="text-[8px] text-blue-500 uppercase">Peak</p><p id="f_peak" class="text-xs font-bold mono">0.00</p></div>
+                    <div><p class="text-[8px] text-red-500 uppercase">SL</p><p id="f_sl" class="text-xs font-bold mono">0.00</p></div>
+                    <div><p class="text-[8px] text-green-500 uppercase">TP</p><p id="f_tp" class="text-xs font-bold mono">0.00</p></div>
+                    <div><p class="text-[8px] text-orange-500 uppercase">Max DD</p><p id="f_mdd" class="text-xs font-bold mono">0.00</p></div>
+                    <div><p class="text-[8px] text-gray-600 uppercase">Lots</p><p id="f_lots" class="text-xs font-bold mono">0.00</p></div>
+                    <div><p class="text-[8px] text-gray-600 uppercase">Time</p><p id="f_time" class="text-xs font-bold mono">--:--</p></div>
                 </div>
-                <div class="border-t border-gray-800/50 pt-3">
-                    <p class="text-[8px] text-cyan-600 uppercase font-bold mb-1">Machine Strategic Reasoning</p>
-                    <p id="f_reasoning" class="text-[10px] mono italic text-cyan-400/80 uppercase">Waiting for next neural validation cycle...</p>
-                </div>
+                <div class="border-t border-gray-800/50 pt-3"><p id="f_reasoning" class="text-[10px] mono text-cyan-400/80 uppercase">Waiting for neural validation...</p></div>
             </div>
 
-            <!-- Neural Policy Matrix -->
-            <div class="grid grid-cols-1 gap-4">
-                <div class="bg-black/40 p-4 border border-gray-800/50">
-                    <div class="flex justify-between items-center mb-4">
-                        <h3 class="text-xs font-black uppercase tracking-widest text-gray-400">Neural Policy Ensemble <span class="text-[10px] font-normal text-gray-600">(PPO + Transformer + XGBoost)</span></h3>
-                        <div class="flex items-center space-x-4">
-                            <div id="ticksVal" class="text-[10px] mono text-cyan-500">TICKS: 0</div>
-                            <div id="entropyVal" class="text-[10px] mono text-blue-500">ENTROPY: 0.0000</div>
-                        </div>
-                    </div>
-                    <div class="space-y-4">
-                        <div>
-                            <div class="flex justify-between text-[10px] mb-1 mono"><span>HOLD</span><span id="probHold">33.3%</span></div>
-                            <div class="w-full bg-gray-900 h-1.5"><div id="barHold" class="bg-gray-500 h-full transition-all duration-300" style="width: 33%"></div></div>
-                        </div>
-                        <div>
-                            <div class="flex justify-between text-[10px] mb-1 mono text-green-400"><span>LONG</span><span id="probLong">33.3%</span></div>
-                            <div class="w-full bg-gray-900 h-1.5"><div id="barLong" class="bg-green-500 h-full transition-all duration-300" style="width: 33%"></div></div>
-                        </div>
-                        <div>
-                            <div class="flex justify-between text-[10px] mb-1 mono text-red-400"><span>SHORT</span><span id="probShort">33.3%</span></div>
-                            <div class="w-full bg-gray-900 h-1.5"><div id="barShort" class="bg-red-500 h-full transition-all duration-300" style="width: 33%"></div></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Institutional Matrix -->
             <div class="bg-black/40 p-4 border border-gray-800/50">
-                <h3 class="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-4">Institutional Multi-Timeframe Matrix</h3>
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left mono text-[10px]">
+                <h3 class="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-4">Institutional Trade Ledger</h3>
+                <div class="overflow-x-auto max-h-64">
+                    <table class="w-full text-left mono text-[9px]">
                         <thead class="text-gray-600 border-b border-gray-800">
-                            <tr>
-                                <th class="pb-2">TIMEFRAME</th>
-                                <th class="pb-2">NEURAL BIAS</th>
-                                <th class="pb-2">VOLATILITY (ATR)</th>
-                                <th class="pb-2">STRUCTURE</th>
-                                <th class="pb-2">CERTAINTY</th>
-                            </tr>
+                            <tr><th class="pb-2">TICKET</th><th class="pb-2">TYPE</th><th class="pb-2">ENTRY</th><th class="pb-2">PEAK</th><th class="pb-2">MAX DD</th><th class="pb-2">PROFIT</th><th class="pb-2">REASONING</th></tr>
                         </thead>
-                        <tbody id="tfMatrixBody" class="divide-y divide-gray-900">
-                            <!-- Populated via JS -->
-                        </tbody>
+                        <tbody id="tradeHistoryBody" class="divide-y divide-gray-900 text-gray-400"></tbody>
                     </table>
                 </div>
             </div>
 
-            <!-- Active Learning & Decay -->
-            <div class="grid grid-cols-2 gap-4">
-                <div class="bg-black/40 p-4 border border-gray-800/50">
-                    <h3 class="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-3">RL Brain Sync Status</h3>
-                    <div class="flex justify-between items-end mb-1">
-                        <div id="bufferStatus" class="text-xl font-black mono">0 / 2048</div>
-                        <div id="lastSync" class="text-[9px] text-blue-500 mono mb-1">LAST SYNC: NEVER</div>
-                    </div>
-                    <div class="w-full bg-gray-900 h-1"><div id="barBuffer" class="bg-blue-600 h-full" style="width: 0%"></div></div>
-                    <p class="text-[10px] text-gray-600 mt-2 italic">Neural weights update every 32 trades</p>
-                </div>
-                <div class="bg-black/40 p-4 border border-gray-800/50">
-                    <h3 class="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-3">Time-Decay Efficiency</h3>
-                    <div id="decayVal" class="text-xl font-black mono text-orange-500">-0.000</div>
-                    <p class="text-[10px] text-gray-600 mt-2 italic">Current estimated reward penalty for trade duration</p>
-                </div>
-            </div>
-
-            <!-- Equity Curve -->
-            <div class="bg-black/40 p-4 border border-gray-800/50 flex-grow">
-                <h3 class="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-4">Institutional Equity Curve</h3>
-                <div class="h-64"><canvas id="equityChart"></canvas></div>
+            <div class="bg-black/40 p-4 border border-gray-800/50">
+                <canvas id="equityChart" height="200"></canvas>
             </div>
         </div>
 
-        <!-- Sidebar: Execution & Logs -->
         <div class="panel border-l border-gray-800 flex flex-col space-y-4">
             <h3 class="text-xs font-black uppercase tracking-widest text-gray-400 border-b border-gray-800 pb-2">Execution IO</h3>
-            
             <div class="space-y-2">
-                <button onclick="sendCommand('CLOSE_ALL')" class="btn-io w-full py-3 bg-red-600/10 text-red-500 border-red-900/50 hover:bg-red-600 hover:text-white text-xs">Close All Positions</button>
+                <button onclick="window.sendCommand('CLOSE_ALL')" class="btn-io w-full py-3 bg-red-600/10 text-red-500 border-red-900/50 hover:bg-red-600 hover:text-white text-xs">Close All</button>
                 <div class="grid grid-cols-2 gap-2">
-                    <button onclick="sendCommand('PAUSE')" class="btn-io py-2 bg-orange-600/10 text-orange-500 border-orange-900/50 hover:bg-orange-600 hover:text-white text-[10px]">Pause</button>
-                    <button onclick="sendCommand('RESUME')" class="btn-io py-2 bg-green-600/10 text-green-500 border-green-900/50 hover:bg-green-600 hover:text-white text-[10px]">Resume</button>
+                    <button onclick="window.sendCommand('PAUSE')" class="btn-io py-2 bg-orange-600/10 text-orange-500 text-[10px]">Pause</button>
+                    <button onclick="window.sendCommand('RESUME')" class="btn-io py-2 bg-green-600/10 text-green-500 text-[10px]">Resume</button>
                 </div>
-                <button onclick="sendCommand('KILL')" class="btn-io w-full py-2 bg-white/5 text-gray-400 border-gray-800 hover:bg-white hover:text-black text-[10px]">Emergency Kill</button>
             </div>
-
             <h3 class="text-xs font-black uppercase tracking-widest text-gray-400 border-b border-gray-800 pb-2 mt-4">AI Monologue</h3>
-            <div id="aiLog" class="flex-grow bg-black p-3 mono text-[10px] text-green-500/80 overflow-y-auto space-y-1">
-                <div>> Initializing Sensory Array...</div>
-                <div>> Connected to MT5 Bridge.</div>
-                <div>> Transformer scanning H4 history...</div>
-            </div>
-
-            <div class="pt-4 border-t border-gray-800">
-                <div class="flex justify-between text-[10px] text-gray-600 mono">
-                    <span>SERVER: ONLINE</span>
-                    <span>v2.0.4-INSTITUTIONAL</span>
-                </div>
-            </div>
+            <div id="aiLog" class="flex-grow bg-black p-3 mono text-[10px] text-green-500/80 overflow-y-auto space-y-1"></div>
         </div>
     </div>
 
     <script>
-        let lastPrice = 0;
-        const aiLog = document.getElementById('aiLog');
-        
-        function log(msg) {
-            const div = document.createElement('div');
-            let color = 'text-green-500/80'; // Default Neural Green
-            
-            if (msg.includes('Up')) color = 'text-green-400 font-bold';
-            else if (msg.includes('Down')) color = 'text-red-400 font-bold';
-            else if (msg.includes('H4 STRATEGY')) color = 'text-cyan-400 font-black border-l-2 border-cyan-500 pl-2';
-            else if (msg.includes('SELL') || msg.includes('SHORT')) color = 'text-red-500 font-bold';
-            else if (msg.includes('BUY') || msg.includes('LONG')) color = 'text-green-500 font-bold';
-            else if (msg.includes('COMMAND')) color = 'text-yellow-400 font-bold underline';
-            else if (msg.includes('Error')) color = 'text-orange-500 animate-pulse';
+        window.lastLogHash = "";
+        window.equityChart = null;
 
-            div.innerHTML = `<span class="text-gray-600">[${new Date().toLocaleTimeString()}]</span> <span class="${color}">> ${msg}</span>`;
-            aiLog.appendChild(div);
-            aiLog.scrollTop = aiLog.scrollHeight;
-        }
+        function safeSetText(id, val) { const el = document.getElementById(id); if (el) el.innerText = val; }
 
-        async function sendCommand(action) {
-            if(!confirm(`CONFIRM: Iniate ${action}?`)) return;
-            try {
-                const res = await fetch('/api/command', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: action, params: {} })
-                });
-                const result = await res.json();
-                log(`IO COMMAND SENT: ${action}`);
-            } catch(e) { log(`IO ERROR: ${e}`); }
-        }
-
-        const ctx = document.getElementById('equityChart').getContext('2d');
-        const equityChart = new Chart(ctx, {
-            type: 'line',
-            data: { labels: [], datasets: [{ 
-                label: 'Cumulative PnL', 
-                data: [], 
-                borderColor: '#007aff', 
-                borderWidth: 2, 
-                pointRadius: 0,
-                fill: true,
-                backgroundColor: 'rgba(0,122,255,0.05)'
-            }]},
-            options: { 
-                responsive: true, 
-                maintainAspectRatio: false,
-                scales: { 
-                    x: { 
-                        display: true,
-                        grid: { display: false },
-                        title: { display: true, text: 'Trade Number', font: { size: 10 }, color: '#444' }
-                    }, 
-                    y: { 
-                        grid: { color: '#1a1a1a' }, 
-                        ticks: { 
-                            font: { family: 'JetBrains Mono', size: 10 }, 
-                            color: '#666',
-                            callback: function(value) { return '$' + value.toFixed(2); }
-                        },
-                        title: { display: true, text: 'Cumulative PnL', font: { size: 10 }, color: '#444' }
-                    } 
-                },
-                plugins: { 
-                    legend: { display: false },
-                    tooltip: {
-                        backgroundColor: '#0c0c0c',
-                        titleFont: { family: 'Inter' },
-                        bodyFont: { family: 'JetBrains Mono' },
-                        borderColor: '#007aff',
-                        borderWidth: 1
-                    }
-                }
-            }
-
-        });
+        window.sendCommand = async (action) => {
+            if(!confirm(`Confirm ${action}?`)) return;
+            await fetch('/api/command', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({action}) });
+        };
 
         async function fetchTelemetry() {
             try {
                 const res = await fetch('/api/telemetry');
                 const data = await res.json();
-
-                document.getElementById('price').innerText = data.price.toFixed(2);
-                document.getElementById('balance').innerText = `$${data.balance.toLocaleString()}`;
-                document.getElementById('pnl').innerText = `$${data.pnl.toFixed(2)}`;
+                if (!data || data.error) return;
+                safeSetText('price', (data.price || 0).toFixed(2));
+                safeSetText('balance', `$${(data.balance || 0).toLocaleString()}`);
+                safeSetText('pnl', `$${(data.pnl || 0).toFixed(2)}`);
+                const posEl = document.getElementById('pos'); if(posEl) posEl.innerText = data.action === 0 ? 'FLAT' : (data.action === 1 ? 'LONG' : 'SHORT');
+                safeSetText('stat_winrate', `${(data.performance?.win_rate || 0).toFixed(1)}%`);
+                safeSetText('stat_pf', (data.performance?.profit_factor || 0).toFixed(2));
+                safeSetText('tps', (data.tps || 0).toFixed(1));
+                safeSetText('ticksVal', (data.diagnostics?.total_ticks || 0).toLocaleString());
                 
-                // Update Neural Pulse (TPS)
-                const tpsEl = document.getElementById('tps');
-                if (tpsEl && data.tps !== undefined) {
-                    tpsEl.innerText = data.tps.toFixed(1);
-                    if (data.tps > 5.0) tpsEl.className = 'text-sm font-black mono text-red-500 animate-pulse';
-                    else if (data.tps > 2.0) tpsEl.className = 'text-sm font-black mono text-yellow-400';
-                    else tpsEl.className = 'text-sm font-black mono text-cyan-400';
-                }
-
-                const posEl = document.getElementById('pos');
-                const posCard = document.getElementById('posCard');
-                if (data.action === 1) { 
-                    posEl.innerText = 'LONG'; 
-                    posEl.className = 'text-2xl font-black mono text-green-400';
-                    posCard.style.borderLeftColor = 'var(--accent-green)';
-                } else if (data.action === -1) { 
-                    posEl.innerText = 'SHORT'; 
-                    posEl.className = 'text-2xl font-black mono text-red-400';
-                    posCard.style.borderLeftColor = 'var(--accent-red)';
-                } else { 
-                    posEl.innerText = 'FLAT'; 
-                    posEl.className = 'text-2xl font-black mono text-gray-500';
-                    posCard.style.borderLeftColor = 'var(--accent-blue)';
-                }
-
-                // Update Probs
-                if (data.probs) {
-                    document.getElementById('probHold').innerText = `${(data.probs[0]*100).toFixed(1)}%`;
-                    document.getElementById('probLong').innerText = `${(data.probs[1]*100).toFixed(1)}%`;
-                    document.getElementById('probShort').innerText = `${(data.probs[2]*100).toFixed(1)}%`;
-                    document.getElementById('barHold').style.width = `${data.probs[0]*100}%`;
-                    document.getElementById('barLong').style.width = `${data.probs[1]*100}%`;
-                    document.getElementById('barShort').style.width = `${data.probs[2]*100}%`;
-                }
-
-                // Update Diagnostics
-                if (data.diagnostics) {
-                    const badge = document.getElementById('regimeBadge');
-                    if (data.diagnostics.is_syncing) {
-                        badge.innerText = "SYNCING HISTORY...";
-                        badge.className = "px-3 py-1 bg-yellow-900/30 border border-yellow-500/50 text-yellow-400 text-[10px] font-bold uppercase tracking-widest animate-pulse";
-                    } else {
-                        badge.innerText = `${data.diagnostics.regime} REGIME`;
-                        badge.className = "px-3 py-1 bg-blue-900/30 border border-blue-500/50 text-blue-400 text-[10px] font-bold uppercase tracking-widest";
-                    }
-                    
-                    document.getElementById('bufferStatus').innerText = `${data.diagnostics.buffer} / 32`;
-                    document.getElementById('barBuffer').style.width = `${(data.diagnostics.buffer/32)*100}%`;
-                    document.getElementById('decayVal').innerText = `-${data.diagnostics.decay.toFixed(3)}`;
-                    document.getElementById('entropyVal').innerText = `ENTROPY: ${data.diagnostics.entropy.toFixed(4)}`;
-                    document.getElementById('lastSync').innerText = `LAST SYNC: ${data.diagnostics.last_brain_sync}`;
-                    
-                    if (data.diagnostics.total_ticks !== undefined) {
-                        document.getElementById('ticksVal').innerText = `TICKS: ${data.diagnostics.total_ticks.toLocaleString()}`;
-                    }
-                }
-
-                // Update TF Matrix
-                if (data.tf_matrix) {
-                    const tbody = document.getElementById('tfMatrixBody');
-                    tbody.innerHTML = "";
-                    Object.entries(data.tf_matrix).forEach(([tf, val]) => {
-                        const tr = document.createElement('tr');
-                        const trendColor = val.trend === "LONG" ? "text-green-400" : (val.trend === "SHORT" ? "text-red-400" : "text-gray-500");
-                        const structStatus = val.bos ? "BOS" : (val.choch ? "CHOCH" : "STABLE");
-                        const structColor = val.bos || val.choch ? "text-yellow-400" : "text-gray-500";
-                        
-                        tr.innerHTML = `
-                            <td class="py-2 text-gray-400">${tf.toUpperCase()}</td>
-                            <td class="py-2 ${trendColor} font-bold">${val.trend}</td>
-                            <td class="py-2 text-white">${val.atr.toFixed(2)}</td>
-                            <td class="py-2 ${structColor}">${structStatus}</td>
-                            <td class="py-2"><div class="h-1.5 w-8 bg-gray-900 rounded-full overflow-hidden"><div class="h-full bg-blue-500" style="width: ${val.certainty*100}%"></div></div></td>
-                        `;
-                        tbody.appendChild(tr);
-                    });
-                }
-
-                // Update Forensics
+                const foren = document.getElementById('forensicsPanel');
                 if (data.trade_forensics) {
-                    if (data.action !== 0) {
-                        document.getElementById('forensicsPanel').classList.remove('hidden');
-                        document.getElementById('f_entry').innerText = data.trade_forensics.entry.toFixed(2);
-                        document.getElementById('f_peak').innerText = `$${data.trade_forensics.peak_pnl.toFixed(2)}`;
-                        document.getElementById('f_sl').innerText = data.trade_forensics.sl.toFixed(2);
-                        document.getElementById('f_tp').innerText = data.trade_forensics.tp.toFixed(2);
-                        document.getElementById('f_lots').innerText = data.trade_forensics.lot_size.toFixed(2);
-                        document.getElementById('f_time').innerText = data.trade_forensics.start_time ? data.trade_forensics.start_time.split('T')[1].split('.')[0] : '--:--';
-                    } else {
-                        document.getElementById('forensicsPanel').classList.remove('hidden'); // Keep visible to show reasoning
-                    }
-                    document.getElementById('f_reasoning').innerText = data.trade_forensics.reasoning;
+                    safeSetText('f_entry', (data.trade_forensics.entry || 0).toFixed(2));
+                    safeSetText('f_sl', (data.trade_forensics.sl || 0).toFixed(2));
+                    safeSetText('f_tp', (data.trade_forensics.tp || 0).toFixed(2));
+                    safeSetText('f_peak', (data.trade_forensics.peak_pnl || 0).toFixed(2));
+                    safeSetText('f_reasoning', data.trade_forensics.reasoning || "Neural Pulse Stabilizing...");
                 }
-
-                // Update Performance
-                if (data.performance) {
-                    document.getElementById('stat_winrate').innerText = `${data.performance.win_rate.toFixed(1)}%`;
-                    document.getElementById('stat_pf').innerText = data.performance.profit_factor.toFixed(2);
-                    document.getElementById('stat_dd').innerText = `$${data.performance.drawdown.toFixed(2)}`;
-                }
-
-                // We pull logs every update to keep the monologue fresh
-                // We pull logs via independent interval now for stability
-
-                // Log major structural shifts (Latched to prevent spam)
-                if (data.indicators) {
-                    if (data.indicators.BOS && !window.lastBOS) {
-                        log(`[STRUCTURE] BULLISH BOS DETECTED`);
-                        window.lastBOS = true;
-                    } else if (!data.indicators.BOS) {
-                        window.lastBOS = false;
-                    }
-
-                    if (data.indicators.CHOCH && !window.lastCHOCH) {
-                        log(`[STRUCTURE] BEARISH CHOCH DETECTED`);
-                        window.lastCHOCH = true;
-                    } else if (!data.indicators.CHOCH) {
-                        window.lastCHOCH = false;
-                    }
-                }
-
-                if (data.price !== lastPrice) {
-                    lastPrice = data.price;
-                }
-
-            } catch (e) { console.error("Telemetry Error", e); }
+            } catch (e) { console.error(e); }
         }
 
-        let lastLogHash = "";
         async function fetchLogs() {
             try {
                 const res = await fetch('/api/logs');
                 const logs = await res.json();
-                
-                // DATA LATCH: Only proceed if we have valid logs
-                if (!logs || logs.length === 0) return;
-
-                // Only re-render if the log content has changed
-                const currentHash = JSON.stringify(logs);
-                if (currentHash === lastLogHash) return;
-                lastLogHash = currentHash;
-
-                aiLog.innerHTML = "";
-                logs.forEach(l => {
-                    if (!l) return; // Skip empty lines
-                    const div = document.createElement('div');
-                    let color = 'text-green-500/80';
-                    if (msg_color(l)) color = msg_color(l);
-                    div.innerHTML = `<span class="${color}">> ${l}</span>`;
-                    aiLog.appendChild(div);
-                });
-                aiLog.scrollTop = aiLog.scrollHeight;
-            } catch(e) { console.error("Log Fetch Error", e); }
+                if (!logs || JSON.stringify(logs) === window.lastLogHash) return;
+                window.lastLogHash = JSON.stringify(logs);
+                document.getElementById('aiLog').innerHTML = logs.map(l => `<div>> ${l}</div>`).join('');
+                document.getElementById('aiLog').scrollTop = document.getElementById('aiLog').scrollHeight;
+            } catch (e) {}
         }
-
-        function msg_color(msg) {
-            if (msg.includes('Up')) return 'text-green-400 font-bold';
-            if (msg.includes('Down')) return 'text-red-400 font-bold';
-            if (msg.includes('Decision')) return 'text-cyan-400 font-black border-l-2 border-cyan-500 pl-2';
-            if (msg.includes('SELL')) return 'text-red-500 font-bold';
-            if (msg.includes('BUY')) return 'text-green-500 font-bold';
-            if (msg.includes('Sync Complete')) return 'text-yellow-400 font-black uppercase underline';
-            return null;
-        }
-
-
 
         async function fetchHistory() {
             try {
                 const res = await fetch('/api/trades');
-                const trades = await res.json();
-                let cumulative = 0;
-                const points = trades.map(t => {
-                    cumulative += t.profit;
-                    return cumulative;
-                });
-                equityChart.data.labels = trades.map((_, i) => i);
-                equityChart.data.datasets[0].data = points;
-                equityChart.update();
-            } catch (e) { console.error("History Error", e); }
+                const raw = await res.json();
+                if (!Array.isArray(raw) || raw.length === 0) return;
+                document.getElementById('tradeHistoryBody').innerHTML = raw.sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp)).map(t => `
+                    <tr class="border-b border-gray-900"><td class="py-2 text-gray-500">#${t.ticket}</td><td class="font-bold ${t.action==='LONG'?'text-green-400':'text-red-400'}">${t.action}</td><td>${t.entry.toFixed(2)}</td><td class="text-blue-400">${t.peak.toFixed(2)}</td><td class="text-red-400">${t.max_dd.toFixed(2)}</td><td class="font-black ${t.profit>=0?'text-green-400':'text-red-400'}">$${t.profit.toFixed(2)}</td><td class="text-[8px] text-gray-600 truncate max-w-[100px]">${t.reasoning}</td></tr>
+                `).join('');
+                if (window.equityChart) {
+                    let cum = 0;
+                    window.equityChart.data.labels = raw.map((_,i)=>i);
+                    window.equityChart.data.datasets[0].data = raw.sort((a,b)=>new Date(a.timestamp)-new Date(b.timestamp)).map(t => cum += t.profit);
+                    window.equityChart.update();
+                }
+            } catch (e) {}
         }
 
-        setInterval(fetchTelemetry, 1000);
-        setInterval(fetchLogs, 1000); // 1Hz Independent Log Stream
-        setInterval(fetchHistory, 5000);
+        window.onload = () => {
+            const ctx = document.getElementById('equityChart').getContext('2d');
+            window.equityChart = new Chart(ctx, { type: 'line', data: { labels: [], datasets: [{ label: 'PnL', data: [], borderColor: '#007aff', pointRadius: 0, fill: true, backgroundColor: 'rgba(0,122,255,0.05)' }]}, options: { responsive: true, maintainAspectRatio: false, scales: { x: { display: false }, y: { grid: { color: '#1a1a1a' }}}} });
+            setInterval(fetchTelemetry, 500); setInterval(fetchLogs, 1000); setInterval(fetchHistory, 5000);
+            fetchTelemetry(); fetchLogs(); fetchHistory();
+        };
     </script>
 </body>
 </html>

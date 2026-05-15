@@ -1,0 +1,99 @@
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@500&display=swap');
+
+:root {
+  --bg-pure: #000000;
+  --text-primary: #ffffff;
+  --text-secondary: #888888;
+  --accent-positive: #00ff88;
+  --accent-negative: #ff3b30;
+  --accent-neutral: #555555;
+  --border-subtle: 1px solid #1a1a1a;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  background-color: var(--bg-pure);
+  color: var(--text-primary);
+  height: 100vh;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+.dashboard-container {
+  display: grid;
+  grid-template-columns: 400px 1fr;
+  grid-template-rows: 70px 1fr;
+  height: 100vh;
+  background: var(--bg-pure);
+}
+
+.cell {
+  padding: 24px;
+  border: 0.5px solid #111;
+  position: relative;
+}
+
+header {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 2px solid #111;
+  padding: 0 32px !important;
+}
+
+.finance-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+  display: block;
+}
+
+.finance-value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 2.4rem;
+  font-weight: 500;
+  letter-spacing: -1px;
+}
+
+.data-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.chart-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.terminal-box {
+  background: #050505;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+  padding: 16px;
+  border: var(--border-subtle);
+  color: var(--text-secondary);
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 8px;
+}
+
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-thumb { background: #222; }

@@ -7,10 +7,13 @@ class MT5ZMQClient:
     def __init__(self, pull_port=5555, push_port=5556):
         self.context = zmq.Context()
         self.pull_socket = self.context.socket(zmq.PULL)
+        self.pull_socket.setsockopt(zmq.LINGER, 0)
         self.pull_socket.bind(f"tcp://127.0.0.1:{pull_port}")
         
         self.push_socket = self.context.socket(zmq.PUSH)
+        self.push_socket.setsockopt(zmq.LINGER, 0)
         self.push_socket.bind(f"tcp://127.0.0.1:{push_port}")
+        print(f">>> [ZMQ] Neural Port {pull_port} is now OPEN and BINDED.")
         
     def stream_market_data(self, callback):
         poller = zmq.Poller()
@@ -61,6 +64,7 @@ class MT5ZMQClient:
                         "type_filling": mt5.ORDER_FILLING_IOC,
                     }
                     result = mt5.order_send(request)
+                    print(f"[MT5 VERIFY] CLOSE retcode={result.retcode} order={result.order} sl_sent={request.get('sl',0)} tp_sent={request.get('tp',0)}")
                     if result.retcode != mt5.TRADE_RETCODE_DONE:
                         print(f"Close Failed: {result.comment}")
                     else:
@@ -69,10 +73,13 @@ class MT5ZMQClient:
 
         order_type = mt5.ORDER_TYPE_BUY if action == "BUY" else mt5.ORDER_TYPE_SELL
         tick = mt5.symbol_info_tick(symbol)
-        if tick is None:
-            print(f"Failed to get tick for {symbol}")
+        symbol_info = mt5.symbol_info(symbol)
+        
+        if tick is None or symbol_info is None:
+            print(f"Failed to get info for {symbol}")
             return
             
+        digits = symbol_info.digits
         price = tick.ask if order_type == mt5.ORDER_TYPE_BUY else tick.bid
         
         request = {
@@ -80,9 +87,9 @@ class MT5ZMQClient:
             "symbol": symbol,
             "volume": float(volume),
             "type": order_type,
-            "price": price,
-            "sl": float(sl),
-            "tp": float(tp),
+            "price": round(price, digits),
+            "sl": round(float(sl), digits) if sl > 0 else 0.0,
+            "tp": round(float(tp), digits) if tp > 0 else 0.0,
             "deviation": 20,
             "magic": 999999,
             "comment": "Axon RL Entry",
@@ -91,6 +98,7 @@ class MT5ZMQClient:
         }
         
         result = mt5.order_send(request)
+        print(f"[MT5 VERIFY] ENTRY retcode={result.retcode} order={result.order} sl_sent={request['sl']} tp_sent={request['tp']}")
         if result.retcode != mt5.TRADE_RETCODE_DONE:
             print(f"Order Failed: {result.retcode} - {result.comment}")
             return None

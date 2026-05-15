@@ -1,0 +1,1 @@
+{"balance": 10000.0, "pnl": 0.0, "confidence": 0.0, "action": 0, "symbol": "BTCUSDm", "price": 0.0, "tps": 0.0, "trade_forensics": {"entry": 0.0, "sl": 0.0, "tp": 0.0, "peak_pnl": 0.0, "reasoning": "SCALPER INITIALIZING..."}, "probs": [0.33, 0.33, 0.33], "diagnostics": {"regime": "STABLE", "total_ticks": 0}}

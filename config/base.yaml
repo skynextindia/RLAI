@@ -1,0 +1,73 @@
+# config/base.yaml
+
+database:
+  conn_str:     "postgresql://postgres:trading_local@localhost:5432/ticks"
+  redis_url:    "redis://localhost:6379/0"
+
+data:
+  symbols:      ["BTCUSDm", "ETHUSDm"]
+  seq_len:      60          # ticks of context
+  n_features:   8
+
+simulation:
+  initial_equity:     10000.0
+  base_slippage:      0.00005
+  impact_factor:      0.0002
+  partial_fill_min:   0.70
+  flash_crash_prob:   0.0001
+  stop_hunt_prob:     0.002
+  spread_spike_prob:  0.005
+  gap_prob:           0.0005
+  regime_window:      200
+  lot_size:           1
+
+encoder:
+  d_model:            128
+  n_heads:            4
+  n_layers:           4
+  dim_feedforward:    256
+  dropout:            0.10
+  n_regimes:          6
+
+pretrain:
+  epochs:             1
+  batch_size:         512
+  lr:                 0.0001
+  mask_ratio:         0.15
+  save_path:          "model/checkpoints/encoder_v1.pt"
+
+ppo:
+  lr:                 0.0003
+  clip_eps:           0.20
+  gamma:              0.99
+  gae_lambda:         0.95
+  ent_coef:           0.01
+  vf_coef:            0.50
+  max_grad:           0.50
+  n_steps:            2048
+  n_epochs:           10
+  batch_size:         64
+  total_timesteps:    100000
+  device:             "cuda"   # change to "cuda" if GPU available
+
+risk:
+  max_daily_dd:       -0.02
+  max_position_pct:   0.01
+  max_spread_mult:    3.0
+  max_vol_mult:       2.5
+  max_consec_losses:  6
+  news_blackout_mins: 5
+
+drift:
+  reference_window:   5000
+  live_window:        500
+  ks_threshold:       0.18
+  td_threshold:       0.55
+  cusum_threshold:    8.0
+  expected_reward:    0.04
+
+live:
+  symbol:             "BTCUSDm"
+  baseline_spread:    0.0001
+  baseline_vol:       0.0008
+  lot_size:           0.01    # MICRO LOTS ONLY
