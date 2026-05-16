@@ -74,6 +74,11 @@ class ExecutionEngine:
             position, action, filled_size, executed_price, step_count
         )
 
+        # HARD POSITION GUARD — no code path can exceed this
+        MAX_POS = 0.05
+        if abs(new_position.size) > MAX_POS:
+            new_position.size = MAX_POS if new_position.size > 0 else -MAX_POS
+
         return ExecutionResult(
             new_position = new_position,
             realised_pnl = realised_pnl - spread_paid,
@@ -91,10 +96,16 @@ class ExecutionEngine:
         return base_fill
 
     def _get_order_size(self, action: int, position) -> float:
-        if action in (1, 2):    return 0.01   # New position
-        if action == 3:         return 0.01   # Add
-        if action == 4:         return abs(position.size) # Full Close (updated from 0.5)
-        if action == 5:         return 2.0 * abs(position.size) if position.size != 0 else 0.01
+        MAX_POS = 0.05  # Hard cap: 0.05 BTC
+        cur = abs(position.size)
+        if action in (1, 2):    # Open
+            return 0.01 if cur < MAX_POS else 0.0
+        if action == 3:         # Add
+            return 0.01 if cur < MAX_POS else 0.0
+        if action == 4:         # Close
+            return cur
+        if action == 5:         # Flip = close + open opposite at base size
+            return cur + 0.01 if position.size != 0 else 0.01
         return 0.0
 
     def _hold(self, position, tick) -> ExecutionResult:
@@ -107,15 +118,15 @@ class ExecutionEngine:
         )
         if position.size != 0:
             last_p = getattr(tick, 'last', 0)
-            if last_p == 0: last_p = (tick.bid + tick.ask) / 2
+            if last_p <= 0: last_p = (tick.bid + tick.ask) / 2
             new_p.floating_pnl = (last_p - position.entry_price) * position.size * self.lot_size
         return ExecutionResult(new_p, 0.0, 0.0, 0.0, 1.0)
 
     def _calc_pnl(self, position, action, filled_size, exec_price) -> float:
         if action in (4, 5) and position.size != 0:
-            # PnL on the closed portion
-            closed_size = abs(position.size) if action == 4 else abs(position.size)
-            return (exec_price - position.entry_price) * (position.size if position.size > 0 else position.size) * self.lot_size
+            # PnL = (Exit - Entry) * Size * LotSize
+            # position.size is already signed (positive for long, negative for short)
+            return (exec_price - position.entry_price) * position.size * self.lot_size
         return 0.0
 
     def _update_position(self, position, action, filled_size, exec_price, step):
@@ -139,9 +150,18 @@ class ExecutionEngine:
             p.entry_price = exec_price
             p.entry_time = step
         elif action == 3:
-            # Add to position (Weighted average price)
-            if p.size != 0:
+            # Add to position (Weighted average price) with Safe Division
+            if abs(p.size) > 1e-9:
                 p.entry_price = (p.entry_price * old_size + exec_price * filled_size) / p.size
+            else:
+                p.size = 0.0
+                p.entry_price = 0.0
+        
+        # Numerical Sanitization
+        if abs(p.size) < 1e-9:
+            p.size = 0.0
+            p.entry_price = 0.0
+            p.entry_time = 0
         
         if p.size == 0:
             p.entry_price = 0.0

@@ -49,9 +49,11 @@ class MT5TradingEnv(gym.Env):
             if action == 1: # BUY
                 self.position = 1
                 self.entry_price = current_price * (1 + self.slippage)
+                self.entry_step = self.step_count
             elif action == 2: # SELL
                 self.position = -1
                 self.entry_price = current_price * (1 - self.slippage)
+                self.entry_step = self.step_count
         
         # 3. New Reward Function (Surgical Audit Rewrite)
         reward = self._calculate_reward(pnl, action, spread, is_closed)
@@ -70,40 +72,49 @@ class MT5TradingEnv(gym.Env):
         return obs, reward, done, False, info
         
     def _calculate_reward(self, pnl, action, spread, is_closed):
-        reward = 0.0
+        # 1. Component Calculation
+        r_pnl = (pnl / self.initial_balance) * 10.0 # Standardized PnL Signal
         
-        # 1. Risk-Adjusted Return (Sharpe Component)
-        if self.position != 0:
-            step_return = pnl / self.initial_balance
-            self.rolling_returns.append(step_return)
-            if len(self.rolling_returns) > self.returns_window:
-                self.rolling_returns.pop(0)
-            
-            if len(self.rolling_returns) >= 5:
-                std = np.std(self.rolling_returns)
-                reward = (np.mean(self.rolling_returns) / (std + 1e-6)) * 2.0 
-        
-        # 2. Trade Completion Bonus
-        if is_closed:
-            reward += (0.5 if pnl > 0 else -0.2)
-        
-        # 3. Scaled Overtrading Penalty (Proportional to Spread)
+        # Stability & Cost
+        p_cost = -(spread * 0.1) / self.initial_balance
+        stability_tax = 0.0
         if self.position == 0 and action != 0:
-            friction_cost = (spread * 0.01) / self.initial_balance
-            reward -= friction_cost * 5.0
-        
-        # 4. Inactivity Signal
-        if self.position == 0:
-            self.steps_flat += 1
-            if self.steps_flat > self.max_steps_flat:
-                reward -= 0.01
-        else:
-            self.steps_flat = 0
-
-        # TEMPORARY AUDIT LOG
-        print(f"[REWARD] pnl={pnl:.4f} sharpe_n={len(self.rolling_returns)} reward={reward:.4f} is_closed={is_closed}")
+            stability_tax = -0.001
             
-        return reward
+        # Persistence (Patience)
+        hold_dur = self.step_count - self.entry_step if hasattr(self, 'entry_step') else 0
+        patience_reward = min(hold_dur * 0.0001, 0.01) if self.position != 0 else 0
+        
+        # Penalties (Drawdown & Churn)
+        current_dd = (self.initial_balance - self.balance) / self.initial_balance
+        p_drawdown = -max(0, current_dd) * 0.5
+        time_penalty = -0.0001 * hold_dur if self.position != 0 else 0
+        
+        # Bonuses
+        tp_bonus = 0.0
+        if is_closed and pnl > 0:
+            tp_bonus = 0.05 + (pnl / 100.0)
+
+        # 2. Decomposition (v3.3 Institutional Audit)
+        decomposition = {
+            "pnl": float(r_pnl),
+            "stability": float(p_cost + stability_tax),
+            "persistence": float(patience_reward),
+            "penalty": float(p_drawdown + time_penalty),
+            "bonus": float(tp_bonus)
+        }
+        
+        total_reward = sum(decomposition.values())
+        
+        # PnL Contribution Check (Reject if shaping > 50% of signal)
+        abs_pnl = abs(r_pnl)
+        total_abs = sum(abs(v) for v in decomposition.values()) + 1e-9
+        pnl_ratio = abs_pnl / total_abs
+        
+        self.last_decomposition = decomposition
+        self.last_pnl_ratio = pnl_ratio
+            
+        return total_reward
 
     def _extract_sequence(self, features, timeframe='4h', seq_len=50):
         if features is None or timeframe not in features:

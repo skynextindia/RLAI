@@ -208,11 +208,13 @@ class PPOTrainer:
             'entropy': float(losses.get('entropy', 1.0)),
             'value_loss': float(losses.get('loss', 0.0)),
             'fps': fps,
-            'sharpe_100': audit.get('sharpe_global', 0),
-            'win_rate': audit.get('win_rate', 0),
+            'sharpe_100': float(audit.get('sharpe_global', 0)),
+            'win_rate': float(audit.get('win_rate', 0)),
             'last_price': float(self.env.last_tick.get('bid', 0)) if hasattr(self.env, 'last_tick') else 0,
             'pos_size': float(self.env.position.size),
             'pos_pnl': float(self.env.position.floating_pnl),
+            'convergence_stream': obs.squeeze().cpu().numpy()[::10].tolist() if hasattr(obs, 'squeeze') else [], # Sampled 1650-dim stream
+            'reward_gradient': list(self.reward_history),
             'audit': audit
         }
         self.socket.send_string(json.dumps(msg))

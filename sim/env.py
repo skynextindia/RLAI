@@ -39,7 +39,7 @@ class TradingEnvironment(gym.Env):
     """
 
     SEQUENCE_LEN = 60      
-    MTF_FEATURES = 950     
+    MTF_FEATURES = 1650     
     MAX_STEPS    = 5000    
 
     def __init__(self, config: dict):
@@ -108,7 +108,18 @@ class TradingEnvironment(gym.Env):
             'hold_durations': [],
             'last_trade_step': 0,
             'consecutive_reversals': 0,
-            'last_side': 0 # 1 for long, -1 for short
+            'last_side': 0, # 1 for long, -1 for short
+            'trade_metrics': {
+                'realized_pnl': [],
+                'durations': [],
+                'wins': 0,
+                'total': 0
+            },
+            'step_metrics': {
+                'rewards': [],
+                'floating_pnl': [],
+                'pnl_ratios': []
+            }
         }
         print(f"ENV_RESET: Step={self.step_count}, Trades={self.perf_metrics['total_trades']}, Equity={self.account_equity}", flush=True)
         
@@ -197,7 +208,12 @@ class TradingEnvironment(gym.Env):
         if action != 0:
             self.perf_metrics['total_trades'] += 1
             self.perf_metrics['regime_stats'][regime_code]['trades'] += 1
-            if exec_result.realised_pnl > 0: self.perf_metrics['wins'] += 1
+            if exec_result.realised_pnl != 0:
+                self.perf_metrics['trade_metrics']['total'] += 1
+                self.perf_metrics['trade_metrics']['realized_pnl'].append(exec_result.realised_pnl)
+                if exec_result.realised_pnl > 0:
+                    self.perf_metrics['trade_metrics']['wins'] += 1
+                    self.perf_metrics['wins'] += 1
             
             # Transition tracking
             if prev_regime is not None and prev_regime != regime_code:
@@ -246,22 +262,47 @@ class TradingEnvironment(gym.Env):
         # 4. Efficiency & Risk
         current_dd = (self.max_equity - self.account_equity) / self.initial_equity
         p_drawdown = -current_dd * 0.30
-
-        # --- PHASE 5.1: DEFENSIVE REFINEMENT ---
+        
         floating_pnl = self.position.floating_pnl
+        sl_penalty = -0.05 if self.position.size != 0 and floating_pnl < -10.0 else 0.0
+        tp_bonus = 0.2 if action in [3, 4, 5] and floating_pnl > 5.0 else 0.0
+
+        # --- PHASE 5.3: REWARD ALIGNMENT (v3.6 Blended) ---
+        # 1. Blended PnL Signal (Outcome Quality vs Noise)
+        curr_total_pnl = self.position.floating_pnl + self.realised_pnl
+        prev_total_pnl = getattr(self, '_last_total_pnl', curr_total_pnl)
+        delta_floating = curr_total_pnl - prev_total_pnl
+        self._last_total_pnl = curr_total_pnl
         
-        # 1. Stop-Loss Avoidance Penalty
-        sl_penalty = 0.0
-        if self.position.size != 0 and floating_pnl < -10.0:
-            sl_penalty = -0.05
-            
-        # 2. Take-Profit Incentive
-        tp_bonus = 0.0
-        if action in [3, 4, 5] and floating_pnl > 5.0:
-            tp_bonus = 0.2
-            
-        total = r_pnl + p_cost + p_drawdown + patience_reward + sl_penalty + tp_bonus
+        # Outcome attribution blend (30% Noise / 70% Result)
+        pnl_signal = (0.3 * delta_floating) + (0.7 * exec_result.realised_pnl)
         
+        pnl_vol = np.std(self.perf_metrics['trade_metrics']['realized_pnl'][-50:]) if len(self.perf_metrics['trade_metrics']['realized_pnl']) > 5 else 0.1
+        pnl_norm = np.tanh(pnl_signal / (pnl_vol + 1e-6))
+        
+        # 2. Component Normalization
+        stability_norm = np.clip(p_cost, -1.0, 1.0)
+        persistence_norm = np.clip(patience_reward, -0.5, 0.5)
+        risk_norm = np.clip(p_drawdown + sl_penalty, -1.0, 0.0)
+
+        decomposition = {
+            "pnl": float(0.60 * pnl_norm),
+            "stability": float(0.15 * stability_norm),
+            "persistence": float(0.10 * persistence_norm),
+            "risk": float(0.15 * risk_norm),
+            "bonus": float(tp_bonus)
+        }
+        
+        total_abs = sum(abs(v) for v in decomposition.values()) + 1e-9
+        self.last_pnl_ratio = abs(decomposition['pnl']) / total_abs
+        self.perf_metrics['step_metrics']['pnl_ratios'].append(self.last_pnl_ratio)
+
+        # Gate C: Noise Suppression (Limit floating reward contribution)
+        if exec_result.realised_pnl == 0 and abs(decomposition['pnl']) > 0.3 * total_abs:
+             decomposition['pnl'] *= 0.5 
+
+        self.last_decomposition = decomposition
+
         def calc_sharpe(history, n=30):
             if len(history) < n: return 0.0
             arr = np.array(history)
@@ -272,25 +313,21 @@ class TradingEnvironment(gym.Env):
             return np.percentile(self.perf_metrics['hold_durations'], p)
 
         audit = {
-            'step_profit': r_pnl,
-            'moving_costs': np.mean(self.perf_metrics['moving_costs']),
+            'step_profit': float(exec_result.realised_pnl),
+            'moving_costs': float(np.mean(self.perf_metrics['moving_costs'])),
             'win_rate': self.perf_metrics['wins'] / max(1, self.perf_metrics['total_trades']),
-            'sharpe_global': calc_sharpe(self.perf_metrics['pnl_global'], 50),
-            'regime_sharpe': calc_sharpe(self.perf_metrics['regime_stats'][regime_code]['pnl'], 30),
-            'trade_freq': self.perf_metrics['total_trades'] / max(1, self.step_count / 100),
-            'churn_ratio': self.perf_metrics['path_audit']['flip'] / max(1, self.perf_metrics['total_trades']),
-            
-            # Duration & Churn Audit
+            'trade_freq': (self.perf_metrics['total_trades'] / max(1, self.step_count)) * 100,
+            'expectancy': np.mean(self.perf_metrics['trade_metrics']['realized_pnl']) if self.perf_metrics['trade_metrics']['realized_pnl'] else 0.0,
             'holding_duration': {
-                'p25': get_dur_stat(25),
-                'median': get_dur_stat(50),
-                'p75': get_dur_stat(75)
+                'p25': float(get_dur_stat(25)),
+                'median': float(get_dur_stat(50)),
+                'p75': float(get_dur_stat(75))
             },
-            'path': self.perf_metrics['path_audit'],
-            'cost_mean': np.mean(self.perf_metrics['moving_costs']) if len(self.perf_metrics['moving_costs']) > 0 else 0
+            'path': self.perf_metrics['path_audit']
         }
         self.last_reward_audit = audit
-        return total, audit
+        total_reward = sum(decomposition.values())
+        return np.clip(total_reward, -20.0, 20.0), audit
 
     def _get_obs(self):
         idx = self.step_count + self.SEQUENCE_LEN - 1
@@ -304,19 +341,20 @@ class TradingEnvironment(gym.Env):
 
         hour = self._get_hour(self.ticks[idx].get('time', 0))
         scalars = np.array([
-            metrics['market_speed'] / 1000.0,
-            metrics['volatility'] / 100.0,
-            metrics['imbalance'],
-            self.position.size,
-            self.position.floating_pnl / 100.0,
+            np.clip(metrics['market_speed'] / 1000.0, -10, 10),
+            np.clip(metrics['volatility'] / 100.0, -10, 10),
+            np.clip(metrics['imbalance'], -1, 1),
+            np.clip(self.position.size * 10.0, -1, 1),
+            np.clip(self.position.floating_pnl / 100.0, -20, 20),
             self.regime.current_code / 10.0,
-            (self.account_equity / self.initial_equity) - 1.0,
+            np.clip((self.account_equity / self.initial_equity) - 1.0, -1, 1),
             np.sin(2 * np.pi * hour / 24.0),
             np.cos(2 * np.pi * hour / 24.0),
             self.exec.base_slippage * 1000.0
         ], dtype=np.float32)
 
-        return np.concatenate([t60, mtf, scalars])
+        obs = np.concatenate([t60, mtf, scalars])
+        return np.nan_to_num(obs, nan=0.0, posinf=10.0, neginf=-10.0)
 
     def _update_position(self, result):
         self.position = result.new_position
