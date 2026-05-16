@@ -40,23 +40,16 @@ def run_pretrain(symbol, config):
     )
 
 def run_train(symbol, config):
-    print(f"Starting Phase 4 for {symbol}...", flush=True)
+    print(f"Starting Institutional Phase 4 Calibration for {symbol}...", flush=True)
     config['sim_symbol'] = symbol
-    print("Initializing environment...", flush=True)
+    
+    print("Initializing environment (MTF)...", flush=True)
     env = TradingEnvironment(config)
-    print("Initializing encoder...", flush=True)
-    encoder = MarketEncoder()
-    # Load pre-trained weights if they exist
-    try:
-        print(f"Loading weights from {config['pretrain']['save_path']}...", flush=True)
-        encoder.load_state_dict(torch.load(config['pretrain']['save_path']))
-        print("Loaded pre-trained encoder.", flush=True)
-    except Exception as e:
-        print(f"Starting with untrained encoder. Reason: {e}", flush=True)
         
-    print("Initializing Agent...", flush=True)
-    agent = TradingActorCritic(encoder)
-    print("Initializing Trainer...", flush=True)
+    print("Initializing Institutional Agent...", flush=True)
+    agent = TradingActorCritic()
+    
+    print("Initializing Institutional PPO Trainer...", flush=True)
     trainer = PPOTrainer(agent, env, config['ppo'])
     print("Starting training loop...", flush=True)
     trainer.train(total_timesteps=config['ppo']['total_timesteps'])

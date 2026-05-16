@@ -1,5 +1,3 @@
-# agent/ppo.py
-
 import torch
 import torch.optim as optim
 import numpy as np
@@ -10,10 +8,12 @@ import os
 import gc
 from collections import deque
 
+from agent.memory import PrioritizedReplayBuffer
+
+
 class PPOTrainer:
     """
-    Standard PPO with clipped objective.
-    Tuned for trading environments with sparse, noisy rewards.
+    Institutional PPO Trainer with Windowed Confirmation Gates.
     """
 
     def __init__(self, agent, env, config: dict):
@@ -21,9 +21,8 @@ class PPOTrainer:
         self.env    = env
         self.config = config
         self.device = config.get('device', 'cpu')
-        if self.device == "cuda" and not torch.cuda.is_available():
-            print("WARNING: CUDA requested but not available. Falling back to CPU.")
-            self.device = "cpu"
+        
+        self.memory = PrioritizedReplayBuffer(capacity=50_000)
         
         self.agent  = agent.to(self.device)
         print(f"PPO_DEVICE: {self.device}")
@@ -41,121 +40,96 @@ class PPOTrainer:
             eps    = 1e-5,
         )
 
-        # PPO hyperparameters
         self.clip_eps    = config.get('clip_eps',    0.2)
         self.gamma       = config.get('gamma',       0.99)
         self.gae_lambda  = config.get('gae_lambda',  0.95)
         self.ent_coef    = config.get('ent_coef',    0.01)
         self.vf_coef     = config.get('vf_coef',     0.5)
         self.max_grad    = config.get('max_grad',    0.5)
-        self.n_steps     = config.get('n_steps',     2048)
+        self.n_steps     = config.get('n_steps',     4096)
         self.n_epochs    = config.get('n_epochs',    10)
         self.batch_size  = config.get('batch_size',  64)
 
         self.reward_history = deque(maxlen=100)
+        self.window_stats = []
 
     def train(self, total_timesteps: int):
-        # mlflow.set_experiment("ppo_agent")
+        self.total_timesteps = total_timesteps
+        obs, _ = self.env.reset()
+        
+        # 1. Load weights if existing
+        ckpt = "models/ppo_agent_latest.pt"
+        if os.path.exists(ckpt):
+            self.agent.load_state_dict(torch.load(ckpt, map_location=self.device))
+            print("Weights restored. Starting Institutional Confirmation Gate.")
 
-        # with mlflow.start_run():
-        #     mlflow.log_params(self.config)
-
-            self.total_timesteps = total_timesteps
-            obs, _      = self.env.reset()
-            episode_num = 0
-
-            # Auto-Resume
-            ckpt = "models/ppo_agent_latest.pt"
-            if os.path.exists(ckpt):
-                print(f"LOADING_SAVED_MODEL: {ckpt}")
-                self.agent.load_state_dict(torch.load(ckpt))
-
-            while self.current_step < self.total_timesteps:
-                self.start_time = time.time()
-                # Collect rollout
-                self.current_task = "COLLECTING"
-                print(f"Collecting rollout ({self.current_step}/{self.total_timesteps})...", flush=True)
+        # 2. Window Configuration (10k per window)
+        window_size = 10000
+        n_windows = total_timesteps // window_size
+        self.current_step = 0
+        
+        for window_idx in range(n_windows):
+            print(f"\n--- WINDOW {window_idx+1}/{n_windows} (Steps {window_idx*window_size}-{(window_idx+1)*window_size}) ---", flush=True)
+            
+            start_equity = self.env.account_equity
+            window_steps = 0
+            
+            while window_steps < window_size:
+                # Rollout
                 rollout, obs = self._collect_rollout(obs)
-                self.current_step += self.n_steps
-
-                # Compute advantages (GAE)
-                self.current_task = "OPTIMIZING"
-                advantages, returns = self._compute_gae(rollout)
-
-                # PPO update
-                print(f"Updating policy...", flush=True)
-                losses = self._update(rollout, advantages, returns)
-
-                # Logging
-                ep_rewards = rollout['episode_rewards']
-                mean_reward = np.mean(ep_rewards) if ep_rewards else 0.0
-                if ep_rewards:
-                    self.reward_history.append(mean_reward)
-                    episode_num += len(ep_rewards)
-
-                print(
-                    f"Step {self.current_step:>8,} | "
-                    f"Loss P: {losses['policy']:>7.4f} | "
-                    f"Loss V: {losses['value']:>7.4f} | "
-                    f"Ep Rew: {mean_reward:>8.4f}",
-                    flush=True
-                )
-
-                # Broadcast telemetry
-                telemetry = {
-                    'task': 'OPTIMIZING',
-                    'total_steps': self.total_timesteps,
-                    'timestep': self.current_step,
-                    'policy_loss': float(losses['policy']),
-                    'value_loss': float(losses['value']),
-                    'reward': float(mean_reward),
-                    'equity': float(self.env.account_equity),
-                    'entropy': float(losses['entropy']),
-                    'regime': int(self.env.regime.current_code),
-                    'lr': self.optimizer.param_groups[0]['lr'],
-                    'fps': float(self.n_steps / (time.time() - self.start_time)),
-                    'trades': self.recent_trades,
-                    # Neural Reasoning Data
-                    'pos_size': float(self.env.position.size),
-                    'pos_pnl': float(self.env.position.floating_pnl),
-                    'last_price': float(self.env.ticks[self.env.step_count + self.env.SEQUENCE_LEN - 1]['last']) if (self.env.ticks and self.env.step_count + self.env.SEQUENCE_LEN < len(self.env.ticks)) else 0.0,
-                    'entropy': getattr(self, 'last_entropy', 0.5)
-                }
-                self.socket.send_string(json.dumps(telemetry))
                 
-                # MEMORY RECOVERY: Break data references and trigger GC
-                self.recent_trades = []
-                del rollout
-                del advantages
-                del returns
-                gc.collect()
-                if self.device == "cuda":
-                    torch.cuda.empty_cache()
+                # Update
+                advantages, returns = self._compute_gae(rollout)
+                metrics = self._update(rollout, advantages, returns)
+                
+                window_steps += self.n_steps
+                
+                # Check Circuit Breakers
+                if self._check_circuit_breakers():
+                    break
 
-                # Periodic Saving
-                if (self.current_step // self.n_steps) % 5 == 0:
-                    os.makedirs("models", exist_ok=True)
-                    torch.save(self.agent.state_dict(), "models/ppo_agent_latest.pt")
-                    print(f"CHECKPOINT_SAVED: {self.current_step} steps")
+            # End of Window Audit
+            end_equity = self.env.account_equity
+            equity_delta = end_equity - start_equity
+            audit = self.env.last_reward_audit
+            
+            window_report = {
+                'window': window_idx + 1,
+                'equity_delta': equity_delta,
+                'trade_freq': audit.get('trade_freq', 0),
+                'sharpe': audit.get('sharpe_global', 0),
+                'hold_time': audit.get('holding_duration', {}).get('median', 0),
+                'churn': audit.get('churn_ratio', 0)
+            }
+            self.window_stats.append(window_report)
+            
+            # Persist Progress
+            torch.save(self.agent.state_dict(), ckpt)
+            self._save_diagnostic_report(f"diagnostics_window_{window_idx+1}.json", torch.FloatTensor(obs).unsqueeze(0).to(self.device))
+            
+            print(f"WINDOW_AUDIT: Equity={end_equity:.2f}, Freq={window_report['trade_freq']:.1f}%, Sharpe={window_report['sharpe']:.2f}", flush=True)
+
+        self._print_final_gate_report()
 
     def _collect_rollout(self, obs_start):
         rollout = {
-            'obs':      [], 'actions': [], 'log_probs': [],
-            'values':   [], 'rewards': [], 'dones':     [],
+            'obs': [], 'actions': [], 'log_probs': [],
+            'values': [], 'rewards': [], 'dones': [],
             'episode_rewards': [],
         }
-
         obs = obs_start
         ep_reward = 0.0
 
         for i in range(self.n_steps):
             obs_tensor = torch.FloatTensor(obs).unsqueeze(0).to(self.device)
-
             with torch.no_grad():
-                action, log_prob, value, _ = self.agent.get_action(obs_tensor)
+                action, log_prob, value, _ = self.agent.get_action(
+                    obs_tensor, threshold=self.config.get('confidence_threshold', 0.0)
+                )
 
             next_obs, reward, done, _, info = self.env.step(action.item())
-
+            
+            self.env.last_reward_audit = info.get('reward_audit', {})
             rollout['obs'].append(obs)
             rollout['actions'].append(action.item())
             rollout['log_probs'].append(log_prob.item())
@@ -165,60 +139,10 @@ class PPOTrainer:
 
             ep_reward += reward
             obs = next_obs
+            self.current_step += 1
 
-            # LIVE TELEMETRY during collection
-            if i % 50 == 0:
-                try:
-                    elapsed = time.time() - self.start_time
-                    fps = (i + 1) / elapsed if elapsed > 0.1 else 30.0
-                    
-                    # Ensure we don't index out of bounds
-                    idx = min(self.env.step_count + self.env.SEQUENCE_LEN - 1, len(self.env.ticks) - 1)
-                    tick = self.env.ticks[idx] if self.env.ticks else {}
-                    price = float(tick.get('last', 0))
-                    if price == 0 and tick:
-                        price = (float(tick.get('bid', 0)) + float(tick.get('ask', 0))) / 2
-
-                    live_telemetry = {
-                        'device': str(self.device),
-                        'task': 'COLLECTING',
-                        'total_steps': self.total_timesteps,
-                        'symbol': getattr(self.env, 'symbol', 'BTCUSDm'),
-                        'timestep': self.current_step + i,
-                        'equity': float(self.env.account_equity),
-                        'pos_size': float(self.env.position.size),
-                        'pos_pnl': float(self.env.position.floating_pnl),
-                        'last_price': price,
-                        'regime': int(self.env.regime.current_code),
-                        'reward': float(reward),
-                        'fps': float(fps),
-                        'value_loss': getattr(self, 'last_v_loss', 0.0),
-                        'policy_loss': getattr(self, 'last_p_loss', 0.0),
-                        'entropy': getattr(self, 'last_entropy', 1.0),
-                        'lr': self.optimizer.param_groups[0]['lr'],
-                        'trades': [] # Don't send partial list to avoid flickering
-                    }
-                    self.socket.send_string(json.dumps(live_telemetry))
-                except Exception as e:
-                    print(f"TELEMETRY_ERROR: {e}")
-
-            if info['action'] != 0:
-                action_names = ["HOLD", "BUY", "SELL", "ADD", "REDUCE", "CLOSE"]
-                # Ensure we don't index out of bounds
-                idx = min(self.env.step_count + self.env.SEQUENCE_LEN - 1, len(self.env.ticks) - 1)
-                tick = self.env.ticks[idx] if self.env.ticks else {}
-                price = float(tick.get('last', 0))
-                if price == 0 and tick:
-                    price = (float(tick.get('bid', 0)) + float(tick.get('ask', 0))) / 2
-
-                self.recent_trades.append({
-                    "id": int(time.time() * 1000),
-                    "type": action_names[info['action']],
-                    "pnl": float(info['last_pnl']),
-                    "equity": float(info['equity']),
-                    "price": price,
-                    "size": float(self.env.position.size)
-                })
+            if action != 0 or i % 10 == 0:
+                self._broadcast_diagnostics({'entropy': 1.0}, obs_tensor)
 
             if done:
                 rollout['episode_rewards'].append(ep_reward)
@@ -228,68 +152,97 @@ class PPOTrainer:
         return rollout, obs
 
     def _compute_gae(self, rollout):
-        rewards    = np.array(rollout['rewards'])
-        values     = np.array(rollout['values'])
-        dones      = np.array(rollout['dones'])
-
+        rewards = np.array(rollout['rewards'])
+        values = np.array(rollout['values'])
+        dones = np.array(rollout['dones'])
         advantages = np.zeros_like(rewards)
-        last_gae   = 0.0
-
+        last_gae = 0.0
         for t in reversed(range(len(rewards))):
             next_val = values[t + 1] if t + 1 < len(values) else 0.0
-            delta    = rewards[t] + self.gamma * next_val * (1 - dones[t]) - values[t]
+            delta = rewards[t] + self.gamma * next_val * (1 - dones[t]) - values[t]
             last_gae = delta + self.gamma * self.gae_lambda * (1 - dones[t]) * last_gae
             advantages[t] = last_gae
-
         returns = advantages + values
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
         return advantages, returns
 
     def _update(self, rollout, advantages, returns) -> dict:
-        obs_t   = torch.FloatTensor(np.array(rollout['obs'])).to(self.device)
-        act_t   = torch.LongTensor(rollout['actions']).to(self.device)
-        logp_t  = torch.FloatTensor(rollout['log_probs']).to(self.device)
-        adv_t   = torch.FloatTensor(advantages).to(self.device)
-        ret_t   = torch.FloatTensor(returns).to(self.device)
-
-        total_policy_loss = total_value_loss = total_entropy = 0.0
-        n_updates = 0
-
+        obs_t = torch.FloatTensor(np.array(rollout['obs'])).to(self.device)
+        act_t = torch.LongTensor(rollout['actions']).to(self.device)
+        logp_t = torch.FloatTensor(rollout['log_probs']).to(self.device)
+        adv_t = torch.FloatTensor(advantages).to(self.device)
+        ret_t = torch.FloatTensor(returns).to(self.device)
+        
         for _ in range(self.n_epochs):
             indices = torch.randperm(len(obs_t))
-
             for start in range(0, len(obs_t), self.batch_size):
                 idx = indices[start : start + self.batch_size]
-
-                log_probs, values, entropy = self.agent.evaluate_action(
-                    obs_t[idx], act_t[idx]
-                )
-
-                ratio        = torch.exp(log_probs - logp_t[idx])
-                surr1        = ratio * adv_t[idx]
-                surr2        = torch.clamp(ratio, 1 - self.clip_eps, 1 + self.clip_eps) * adv_t[idx]
-                policy_loss  = -torch.min(surr1, surr2).mean()
-                value_loss   = torch.nn.functional.mse_loss(values.squeeze(), ret_t[idx])
-                entropy_loss = -entropy.mean()
-
-                loss = policy_loss + self.vf_coef * value_loss + self.ent_coef * entropy_loss
-
+                log_probs, values, entropy = self.agent.evaluate_action(obs_t[idx], act_t[idx])
+                ratio = torch.exp(log_probs - logp_t[idx])
+                surr1 = ratio * adv_t[idx]
+                surr2 = torch.clamp(ratio, 1-self.clip_eps, 1+self.clip_eps) * adv_t[idx]
+                policy_loss = -torch.min(surr1, surr2).mean()
+                value_loss = 0.5 * (ret_t[idx] - values.squeeze()).pow(2).mean()
+                loss = policy_loss + self.vf_coef * value_loss - self.ent_coef * entropy.mean()
                 self.optimizer.zero_grad()
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.agent.parameters(), self.max_grad)
                 self.optimizer.step()
+        return {'loss': loss.item(), 'entropy': entropy.mean().item()}
 
-                total_policy_loss += policy_loss.item()
-                total_value_loss  += value_loss.item()
-                total_entropy     += entropy.mean().item()
-                n_updates         += 1
+    def _broadcast_diagnostics(self, losses, obs, heavy=False):
+        audit = self.env.last_reward_audit
+        
+        # Calculate Pulse Frequency (Hz)
+        now = time.time()
+        dt = now - getattr(self, '_last_broadcast_time', now - 0.1)
+        self._last_broadcast_time = now
+        fps = 1.0 / (dt + 1e-6)
 
-        self.last_p_loss = total_policy_loss / n_updates
-        self.last_v_loss = total_value_loss / n_updates
-        self.last_entropy = total_entropy / n_updates
-
-        return {
-            'policy':  self.last_p_loss,
-            'value':   self.last_v_loss,
-            'entropy': self.last_entropy,
+        msg = {
+            'task': 'DIAGNOSTIC',
+            'step': self.current_step,
+            'total_steps': self.total_timesteps,
+            'equity': float(self.env.account_equity),
+            'pnl': float(self.env.account_equity - self.env.initial_equity),
+            'entropy': float(losses.get('entropy', 1.0)),
+            'value_loss': float(losses.get('loss', 0.0)),
+            'fps': fps,
+            'sharpe_100': audit.get('sharpe_global', 0),
+            'win_rate': audit.get('win_rate', 0),
+            'last_price': float(self.env.last_tick.get('bid', 0)) if hasattr(self.env, 'last_tick') else 0,
+            'pos_size': float(self.env.position.size),
+            'pos_pnl': float(self.env.position.floating_pnl),
+            'audit': audit
         }
+        self.socket.send_string(json.dumps(msg))
+
+    def _save_diagnostic_report(self, name, obs):
+        path = os.path.join("diagnostics", name)
+        audit = self.env.last_reward_audit
+        with open(path, "w") as f:
+            json.dump({
+                'step': self.current_step,
+                'metrics': {'equity': float(self.env.account_equity)},
+                'reward_audit': audit
+            }, f, indent=4)
+
+    def _check_circuit_breakers(self) -> bool:
+        if self.env.account_equity < self.env.initial_equity * 0.70:
+            print("HALT: 30%_DRAWDOWN_BREACHED")
+            return True
+        return False
+
+    def _print_final_gate_report(self):
+        print("\n" + "="*50)
+        print("CONVERGENCE CONFIRMATION GATE REPORT")
+        print("="*50)
+        print(f"{'Win':<5} | {'Eq Delta':<10} | {'Freq':<6} | {'Sharpe':<6} | {'Hold':<5} | {'Churn':<5}")
+        print("-" * 50)
+        for s in self.window_stats:
+            print(f"{s['window']:<5} | {s['equity_delta']:>10.2f} | {s['trade_freq']:>5.1f}% | {s['sharpe']:>6.2f} | {s['hold_time']:>5.1f} | {s['churn']:>5.2f}")
+        print("="*50)
+        final = self.window_stats[-1]
+        stable = abs(self.window_stats[-1]['trade_freq'] - self.window_stats[-2]['trade_freq']) < 20 if len(self.window_stats) > 1 else False
+        print(f"Pass Criteria: Final Sharpe > 0.5? {'YES' if final['sharpe'] > 0.5 else 'NO'}")
+        print(f"Pass Criteria: Stability? {'YES' if stable else 'NO'}")

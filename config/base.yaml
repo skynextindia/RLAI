@@ -14,6 +14,7 @@ simulation:
   base_slippage:      0.00005
   impact_factor:      0.0002
   partial_fill_min:   0.70
+  base_commission:    0.00013
   flash_crash_prob:   0.0001
   stop_hunt_prob:     0.002
   spread_spike_prob:  0.005
@@ -37,18 +38,19 @@ pretrain:
   save_path:          "model/checkpoints/encoder_v1.pt"
 
 ppo:
-  lr:                 0.0003
+  lr:                 0.00001
   clip_eps:           0.20
   gamma:              0.99
   gae_lambda:         0.95
   ent_coef:           0.01
+  confidence_threshold: 0.55
   vf_coef:            0.50
   max_grad:           0.50
   n_steps:            2048
-  n_epochs:           10
+  n_epochs:           3
   batch_size:         64
-  total_timesteps:    100000
-  device:             "cuda"   # change to "cuda" if GPU available
+  total_timesteps:    50000
+  device:             "cpu"   # change to "cuda" if GPU available
 
 risk:
   max_daily_dd:       -0.02

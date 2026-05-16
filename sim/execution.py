@@ -16,8 +16,8 @@ class ExecutionResult:
 
 class ExecutionEngine:
     """
-    Models the difference between textbook trading and real trading.
-    This is where most simulators lie and where most agents fail.
+    Institutional Execution Engine.
+    Models slippage, spread, and liquidity impact.
     """
 
     def __init__(self, config: dict):
@@ -32,6 +32,7 @@ class ExecutionEngine:
         tick:        object,
         position:    object,
         regime_code: int,
+        step_count:  int, # Added for duration audit
     ) -> ExecutionResult:
 
         if action == 0:   # HOLD
@@ -39,20 +40,22 @@ class ExecutionEngine:
 
         order_size = self._get_order_size(action, position)
         direction  = 1.0 if action in (1, 3) else -1.0
+        if action == 5: # Flip reverses side
+            direction = -1.0 if position.size > 0 else 1.0
 
-        # 1. Spread cost (you always pay the spread)
+        # 1. Spread cost
         spread = getattr(tick, 'spread', 0.0001)
         spread_paid = spread * abs(order_size) * self.lot_size
 
-        # 2. Slippage (worsens with order size and volatility regime)
-        volatility_mult = 1.0 + regime_code * 0.5   # worse in volatile regimes
+        # 2. Slippage
+        volatility_mult = 1.0 + regime_code * 0.5
         slippage = (
             self.base_slippage
             + self.impact_factor * abs(order_size) * volatility_mult
-            + np.random.exponential(self.base_slippage * 0.5)  # random component
+            + np.random.exponential(self.base_slippage * 0.5)
         )
 
-        # 3. Partial fill (large orders don't always complete)
+        # 3. Partial fill
         fill_ratio = self._partial_fill_ratio(order_size, regime_code)
 
         # 4. Actual executed price
@@ -60,7 +63,7 @@ class ExecutionEngine:
             tick.ask + slippage if direction > 0
             else tick.bid - slippage
         )
-        filled_size = order_size * fill_ratio
+        filled_size = (order_size * direction) * fill_ratio
 
         # 5. PnL calculation
         realised_pnl = self._calc_pnl(
@@ -68,7 +71,7 @@ class ExecutionEngine:
         )
 
         new_position = self._update_position(
-            position, action, filled_size, executed_price
+            position, action, filled_size, executed_price, step_count
         )
 
         return ExecutionResult(
@@ -80,23 +83,21 @@ class ExecutionEngine:
         )
 
     def _partial_fill_ratio(self, size: float, regime: int) -> float:
-        """In illiquid or volatile conditions, orders partially fill."""
         base_fill = 1.0
-        if regime >= 4:   # illiquid or panic regime
+        if regime >= 4:
             base_fill = np.random.uniform(self.partial_fill_min, 1.0)
-        elif regime >= 2:  # volatile regime
+        elif regime >= 2:
             base_fill = np.random.uniform(0.85, 1.0)
         return base_fill
 
     def _get_order_size(self, action: int, position) -> float:
-        if action in (1, 2):    return 0.01   # standard lot
-        if action == 3:         return 0.01   # add to position
-        if action == 4:         return abs(position.size) * 0.5
-        if action == 5:         return abs(position.size)
+        if action in (1, 2):    return 0.01   # New position
+        if action == 3:         return 0.01   # Add
+        if action == 4:         return abs(position.size) # Full Close (updated from 0.5)
+        if action == 5:         return 2.0 * abs(position.size) if position.size != 0 else 0.01
         return 0.0
 
     def _hold(self, position, tick) -> ExecutionResult:
-        """No action. Update floating PnL only."""
         from sim.env import Position
         new_p = Position(
             size         = position.size,
@@ -105,40 +106,45 @@ class ExecutionEngine:
             floating_pnl = position.floating_pnl,
         )
         if position.size != 0:
-            new_p.floating_pnl = (
-                (tick.last - position.entry_price)
-                * position.size * self.lot_size
-            )
+            last_p = getattr(tick, 'last', 0)
+            if last_p == 0: last_p = (tick.bid + tick.ask) / 2
+            new_p.floating_pnl = (last_p - position.entry_price) * position.size * self.lot_size
         return ExecutionResult(new_p, 0.0, 0.0, 0.0, 1.0)
 
     def _calc_pnl(self, position, action, filled_size, exec_price) -> float:
         if action in (4, 5) and position.size != 0:
-            return (exec_price - position.entry_price) * filled_size * self.lot_size
+            # PnL on the closed portion
+            closed_size = abs(position.size) if action == 4 else abs(position.size)
+            return (exec_price - position.entry_price) * (position.size if position.size > 0 else position.size) * self.lot_size
         return 0.0
 
-    def _update_position(self, position, action, filled_size, exec_price):
+    def _update_position(self, position, action, filled_size, exec_price, step):
         from sim.env import Position
         p = Position(
             size         = position.size,
             entry_price  = position.entry_price,
             entry_time   = position.entry_time,
-            floating_pnl = position.floating_pnl,
+            floating_pnl = 0.0,
         )
-        if action == 1:   
-            p.size += filled_size
+        
+        old_size = p.size
+        p.size += filled_size
+        
+        # If opening or reversing, update entry_price and entry_time
+        if old_size == 0 and p.size != 0:
             p.entry_price = exec_price
-        elif action == 2: 
-            p.size -= filled_size
+            p.entry_time = step
+        elif (old_size > 0 and p.size < 0) or (old_size < 0 and p.size > 0):
+            # Reversed (Flip)
             p.entry_price = exec_price
-        elif action == 3: 
-            p.size += filled_size
-            # Weighted average entry price?
-            # For simplicity, keeping original entry price or just updating
-            p.entry_price = (p.entry_price * (p.size - filled_size) + exec_price * filled_size) / p.size if p.size != 0 else exec_price
-        elif action == 4: 
-            p.size *= 0.5
-        elif action == 5: 
-            p.size = 0.0
+            p.entry_time = step
+        elif action == 3:
+            # Add to position (Weighted average price)
+            if p.size != 0:
+                p.entry_price = (p.entry_price * old_size + exec_price * filled_size) / p.size
+        
+        if p.size == 0:
             p.entry_price = 0.0
-            p.floating_pnl = 0.0
+            p.entry_time = 0
+            
         return p

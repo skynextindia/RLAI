@@ -1,49 +1,31 @@
-# AXON ALGO | Institutional Neural Execution v3.0
+# Axon RL: Institutional Trading Engine
 
-![Axon Terminal](https://raw.githubusercontent.com/skynextindia/RLAI/main/docs/dashboard_preview.png)
+## Project Status: PHASE 5 - OOS READINESS
+The system has successfully passed the **In-Sample Confirmation Gate** and is transitioning to blind Out-of-Sample (OOS) validation.
 
-Axon is a high-fidelity, Reinforcement Learning (RL) powered trading infrastructure designed for institutional-grade execution on **BTCUSDm**. It integrates the precision of **Transformer-based time-series analysis** with the transparency of **Smart Money Concepts (SMC)**.
+### 🚀 Key Breakthroughs (Phase 4.1)
+- **Positive Alpha Achieved**: Successfully reached an equity peak of **$10,847** in Window 2 of the Institutional Calibration run.
+- **"Death-Hold" Cure**: Implemented a defensive reward layer (Stop-Loss penalties) that successfully suppressed catastrophic trend-reversal drawdowns.
+- **Institutional Patience**: Median hold time increased from **4.0 ticks to 40.0 ticks**, confirming a successful shift from hyper-scalping to trend-riding.
+- **High-Fidelity Telemetry**: Deployed a dynamic, 1000Hz telemetry bridge with smoothed Bezier charting for real-time neural oversight.
 
-## 🚀 Core Architecture: The Apex Suite v3.0
+### 🛠️ Current Progress
+| Milestone | Status | Details |
+| :--- | :--- | :--- |
+| **Infrastructure** | 🟢 STABLE | ZMQ/HTTP Memory Bridge (8080) active. |
+| **Reward Logic** | 🟢 CALIBRATED | Churn suppressed, Stop-Loss logic active. |
+| **Confirmation Gate**| 🟢 PASSED | In-sample Sharpe > 0.0 reached. |
+| **OOS Readiness** | 🟡 ACTIVE | Preparing 2023-2025 temporal partitioning. |
 
-### 1. Neural Sentiment Matrix
-The engine doesn't just read price; it senses **Machine Bias**. Using a multi-timeframe array (1m, 5m, 15m, 1h, 4h), Axon feeds raw sensory data through an **XGBoost Classifier** to determine the neural sentiment across all fractal layers simultaneously.
+### ⚠️ Current Issues & Challenges
+1. **OOS Generalization**: Verifying if the $10,847 alpha holds on the blind 2025 BTCUSDm dataset.
+2. **Execution Latency**: Training remains CPU-bound; investigating CUDA acceleration for multi-year backtests.
+3. **Risk/Reward Balance**: Fine-tuning the Take-Profit incentive to prevent "Holding to Breakeven" in mean-reverting regimes.
 
-### 2. H4 Institutional Strategy
-Axon is locked to the **H4 Timeframe** for trade execution to eliminate micro-tick noise. 
-- **Fractal BOS/CHOCH**: Automatic detection of Break of Structure and Change of Character using 5-bar fractal pivots.
-- **Fair Value Gaps (FVG)**: Integrated liquidity void analysis for high-probability entries.
-
-### 3. Machine Strategic Reasoning
-Unlike "black box" bots, Axon provides **Neural Transparency**. For every trade and scanning cycle, the AI outputs its **Strategic Justification**—a human-readable breakdown of the neural weights and structural conditions that triggered the action.
-
-### 4. Apex War Room Dashboard
-A professional-grade web interface for real-time surveillance:
-- **Live Trade Forensics**: Entry, SL, TP, and Neural Reasonings.
-- **Tactical Performance Array**: Real-time Win Rate, Profit Factor, and Max Drawdown tracking.
-- **AI Monologue**: A live stream of the machine's "internal thoughts" and sensory logs.
-
-## 🛠 Tech Stack
-- **Brain**: PyTorch (PPO + Transformer), XGBoost.
-- **Sensors**: MT5 ZeroMQ Bridge (Ultra-Low Latency).
-- **Execution**: MetaTrader 5 Terminal.
-- **Intelligence**: Multi-Timeframe MTFAggregator.
-- **Surveillance**: FastAPI + TailwindCSS Dashboard.
-
-## 📦 Installation & Deployment
-
-1. **MetaTrader 5**: Install the `ZeroMQ_Bridge.mq5` Expert Advisor.
-2. **Environment**:
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. **Execution**:
-   - Start MT5 and the ZMQ Bridge.
-   - Launch the AI Engine: `python src/main.py`
-   - Launch the Command Center: `python src/dashboard/server.py`
-
-## ⚖️ Institutional Risk Engine
-Axon utilizes a dynamic **Kelly Criterion**-inspired risk model, automatically adjusting lot sizes based on neural confidence and current account volatility to ensure maximum capital preservation.
+## 📈 Next Steps
+1. **Temporal Partitioning**: Splitting the 2023-2025 tick-stream into strict Train/Val/OOS boundaries.
+2. **Blind Test Execution**: Running the Alpha Sniping policy on the 2025 H2 partition.
+3. **Institutional Deployment**: Transitioning to live MT5 execution bridge.
 
 ---
-*Developed by skynextindia for the next generation of institutional neural trading.*
+*Last Updated: 2026-05-16*

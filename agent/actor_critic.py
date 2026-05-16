@@ -1,29 +1,22 @@
-# agent/actor_critic.py
-
 import torch
 import torch.nn as nn
-from model.encoder import MarketEncoder
+from model.institutional_encoder import InstitutionalEncoder
 
 
 class TradingActorCritic(nn.Module):
     """
-    PPO Actor-Critic on top of the pre-trained market encoder.
+    Institutional PPO Actor-Critic.
+    Uses partitioned feature fusion for multi-horizon situational awareness.
     """
 
     def __init__(
         self,
-        encoder:     MarketEncoder,
         latent_dim:  int = 128,
         hidden_dim:  int = 256,
         n_actions:   int = 6,
-        freeze_encoder: bool = True,
     ):
         super().__init__()
-        self.encoder = encoder
-
-        if freeze_encoder:
-            for param in self.encoder.parameters():
-                param.requires_grad = False
+        self.encoder = InstitutionalEncoder(latent_dim=latent_dim)
 
         self.actor = nn.Sequential(
             nn.Linear(latent_dim, hidden_dim),
@@ -63,10 +56,21 @@ class TradingActorCritic(nn.Module):
         value  = self.critic(z)
         return logits, value
 
-    def get_action(self, obs: torch.Tensor):
+    def get_action(self, obs: torch.Tensor, threshold: float = 0.55):
         logits, value = self.forward(obs)
+        probs  = torch.softmax(logits, dim=-1)
+        max_prob, max_action = torch.max(probs, dim=-1)
+        
         dist   = torch.distributions.Categorical(logits=logits)
+        
+        # Original Sampling Logic
         action = dist.sample()
+        
+        # Confidence Gate: If the BEST action is weak, we MUST HOLD.
+        # This prevents "forced choices" in noisy states.
+        if max_prob.item() < threshold:
+            action = torch.zeros_like(action) # Force HOLD
+            
         log_prob = dist.log_prob(action)
         return action, log_prob, value, dist.entropy()
 

@@ -2,13 +2,17 @@
 
 import gymnasium as gym
 import numpy as np
-from typing import Tuple, Dict, Any
+import pandas as pd
+import time
+from collections import deque
+from typing import Tuple, Dict, Any, List, Optional
 from dataclasses import dataclass
 
 from sim.execution   import ExecutionEngine
 from sim.spread      import SpreadModel
 from sim.regimes     import RegimeStateMachine
 from sim.chaos       import ChaosInjector
+from sim.state       import MTFStateBuilder
 from data.storage    import TickDataLoader
 
 
@@ -22,21 +26,24 @@ class Position:
 
 class Tick:
     def __init__(self, **kwargs):
-        self.__dict__.update(kwargs)
+        for k, v in kwargs.items():
+            setattr(self, k, v)
+    def get(self, key, default):
+        return getattr(self, key, default)
+
 
 class TradingEnvironment(gym.Env):
     """
-    The core training environment.
-    This is the gym.Env your PPO agent will train inside.
+    Institutional RL Environment for BTCUSDm.
+    Includes MTF State Awareness, Realistic Execution, and Regime Tracking.
     """
 
-    SEQUENCE_LEN = 60      # 60 ticks of context fed to encoder
-    N_FEATURES   = 8       # features per tick
-    MAX_STEPS    = 10_000  # episode length
+    SEQUENCE_LEN = 60      
+    MTF_FEATURES = 950     
+    MAX_STEPS    = 5000    
 
     def __init__(self, config: dict):
         super().__init__()
-
         self.config = config
         self.symbol = config.get('sim_symbol', 'BTCUSDm')
         self.loader  = TickDataLoader(config['database']['conn_str'])
@@ -47,143 +54,269 @@ class TradingEnvironment(gym.Env):
 
         self.action_space = gym.spaces.Discrete(6)
         self.observation_space = gym.spaces.Box(
-            low  = -np.inf,
-            high =  np.inf,
-            shape= (self.SEQUENCE_LEN, self.N_FEATURES),
-            dtype= np.float32
+            low=-np.inf, high=np.inf, shape=(self.MTF_FEATURES,), dtype=np.float32
         )
 
-        self._reset_state()
+        self.initial_equity = config.get('initial_equity', 10_000.0)
+        self.reset()
 
-    def reset(self, seed=None, options=None) -> Tuple[np.ndarray, Dict]:
+    def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-        self._reset_state()
-        # Load a random episode from historical data
-        self.ticks = self.loader.sample_episode(
-            length=self.MAX_STEPS + self.SEQUENCE_LEN,
-            symbol=self.config.get('sim_symbol', 'EURUSD')
+        self.step_count = 0
+        self.account_equity = self.initial_equity
+        self.max_equity = self.initial_equity
+        self.position = Position()
+        self.realised_pnl = 0.0
+        self.recent_pnl_log = deque(maxlen=100)
+        self.last_reward_audit = {}
+
+        # 1. Load fresh episode
+        self.ticks_list = self.loader.sample_episode(
+            length=self.MAX_STEPS + self.SEQUENCE_LEN + 1000,
+            symbol=self.symbol
         )
+        if not self.ticks_list:
+            self.ticks_list = [{'price_delta': 0, 'volume_delta': 0, 'spread': 0.0001, 'time_delta_ms': 100, 'ask': 1.1, 'bid': 1.0999, 'last': 1.1, 'volume': 1, 'time': time.time()} for _ in range(7000)]
         
-        if not self.ticks:
-            # Fallback for testing/empty DB
-            self.ticks = [{'price_delta': 0, 'volume_delta': 0, 'spread': 0.0001, 'time_delta_ms': 100, 'session': 0, 'ask': 1.1, 'bid': 1.0999, 'last': 1.1, 'volume': 1} for _ in range(self.MAX_STEPS + self.SEQUENCE_LEN)]
-        
-        # Pre-process ticks into a feature matrix for speed
-        self.tick_features = np.zeros((len(self.ticks), 5), dtype=np.float32)
+        self.ticks = self.ticks_list
+        ticks_df = pd.DataFrame(self.ticks_list)
+        self.state_builder = MTFStateBuilder(ticks_df, self.config['simulation'])
+
+        # 2. Pre-process T60 features
+        self.tick_features = np.zeros((len(self.ticks), 4), dtype=np.float32)
         for i, t in enumerate(self.ticks):
             self.tick_features[i] = [
                 t.get('price_delta', 0) or 0,
                 t.get('volume_delta', 0) or 0,
                 t.get('spread', 0) or 0,
-                (t.get('time_delta_ms', 0) or 100) / 1000.0,
-                (t.get('session', 0) or 0) / 3.0
+                (t.get('time_delta_ms', 0) or 100) / 1000.0
             ]
-            
+
+        # 3. Reset Institutional Performance Audit
+        self.perf_metrics = {
+            'wins': 0, 'total_trades': 0, 
+            'pnl_100': deque(maxlen=100),
+            'pnl_500': deque(maxlen=500),
+            'pnl_global': [],
+            'regime_stats': {},
+            'transition_stats': {},
+            'prev_regime': None,
+            'moving_costs': deque(maxlen=100),
+            'moving_profit': deque(maxlen=100),
+            'action_counts': {0:0, 1:0, 2:0, 3:0, 4:0, 5:0},
+            'path_audit': {'close': 0, 'flip': 0, 'hold': 0, 'trade': 0},
+            'hold_durations': [],
+            'last_trade_step': 0,
+            'consecutive_reversals': 0,
+            'last_side': 0 # 1 for long, -1 for short
+        }
+        print(f"ENV_RESET: Step={self.step_count}, Trades={self.perf_metrics['total_trades']}, Equity={self.account_equity}", flush=True)
+        
         return self._get_obs(), {}
 
-    def step(self, action: int) -> Tuple[np.ndarray, float, bool, bool, Dict]:
+    def step(self, action: int):
         self.step_count += 1
-        tick = self.ticks[self.step_count + self.SEQUENCE_LEN - 1]
+        idx = self.step_count + self.SEQUENCE_LEN - 1
+        tick = self.ticks[idx]
+        if isinstance(tick, dict): tick = Tick(**tick)
         
-        # Ensure tick is a simple object for the rest of the engine
-        if isinstance(tick, dict):
-            tick = Tick(**tick)
+        # Track Action Path & Duration
+        current_side = 1 if self.position.size > 0 else (-1 if self.position.size < 0 else 0)
         
-        # Chaos injection (stop hunts, flash crashes, spread spikes)
-        tick = self.chaos.transform(tick, self.step_count)
+        if action == 0: 
+            self.perf_metrics['path_audit']['hold'] += 1
+        else:
+            # Check for Reversals
+            if current_side != 0:
+                new_side = current_side
+                if action == 2 or action == 5: new_side = -1
+                if action == 1 or action == 3: new_side = 1
+                if action == 4: new_side = 0
+                
+                if new_side != 0 and new_side != current_side:
+                    self.perf_metrics['consecutive_reversals'] += 1
+                else:
+                    self.perf_metrics['consecutive_reversals'] = 0
 
-        # Regime update
+            # Churn Tracking
+            steps_since_last = self.step_count - self.perf_metrics['last_trade_step']
+            if steps_since_last < 10:
+                self.perf_metrics['path_audit']['churn_event'] = self.perf_metrics['path_audit'].get('churn_event', 0) + 1
+            
+            if action == 4: # Close
+                self.perf_metrics['path_audit']['close'] += 1
+                if self.position.entry_time > 0:
+                    self.perf_metrics['hold_durations'].append(self.step_count - self.position.entry_time)
+            elif action == 5: # Flip
+                self.perf_metrics['path_audit']['flip'] += 1
+                if self.position.entry_time > 0:
+                    self.perf_metrics['hold_durations'].append(self.step_count - self.position.entry_time)
+            else:
+                self.perf_metrics['path_audit']['trade'] += 1
+            
+            self.perf_metrics['last_trade_step'] = self.step_count
+
+        self.perf_metrics['action_counts'][action] += 1
+
+        # Physics
+        tick = self.chaos.transform(tick, self.step_count)
         regime_code = self.regime.update(tick)
 
-        # Execute action through realistic execution engine
+        # Execution
         execution_result = self.exec.execute(
-            action      = action,
-            tick        = tick,
-            position    = self.position,
-            regime_code = regime_code,
+            action=action, tick=tick, position=self.position, regime_code=regime_code,
+            step_count=self.step_count
         )
-
-        # Update position and account state
         self._update_position(execution_result)
 
-        # Update floating PnL for current position based on current price
-        if self.position.size != 0:
-            current_tick = self.ticks[self.step_count + self.SEQUENCE_LEN]
-            last_p = current_tick.get('last', 0)
-            if last_p == 0:
-                last_p = (current_tick.get('bid', 0) + current_tick.get('ask', 0)) / 2
-                
-            self.position.floating_pnl = (
-                (last_p - self.position.entry_price) 
-                * self.position.size * self.exec.lot_size
-            )
-        else:
-            self.position.floating_pnl = 0.0
-
-        # Compute reward
-        reward = self._compute_reward(execution_result, tick, action)
-
-        # Episode termination conditions
-        done = (
-            self.step_count >= self.MAX_STEPS
-            or self.account_equity < self.initial_equity * 0.90  # 10% ruin
-        )
-        if done:
-            print(f"Episode Done: Step={self.step_count}, Equity={self.account_equity:.2f}, Ruin={self.account_equity < self.initial_equity * 0.90}", flush=True)
-
+        # Reward & Audit
+        reward, audit = self._compute_reward_with_audit(execution_result, tick, action)
+        
+        done = (self.step_count >= self.MAX_STEPS or self.account_equity < self.initial_equity * 0.85)
+        
         info = {
-            'pnl':          self.realised_pnl,
-            'spread':       execution_result.spread_paid,
-            'slippage':     execution_result.slippage,
-            'regime':       regime_code,
-            'equity':       self.account_equity,
-            'action':       action,
-            'last_pnl':     execution_result.realised_pnl,
+            'pnl': self.realised_pnl,
+            'regime': regime_code,
+            'equity': self.account_equity + self.position.floating_pnl,
+            'action': action,
+            'reward_audit': audit,
+            'session': self._get_session_code(getattr(tick, 'time', 0))
         }
 
         return self._get_obs(), reward, done, False, info
 
-    def _compute_reward(self, exec_result, tick, action) -> float:
-        # Realised component (Scaled to 0.0001 per $)
-        r_pnl = exec_result.realised_pnl * 0.0001
+    def _compute_reward_with_audit(self, exec_result, tick, action):
+        r_pnl = exec_result.realised_pnl * 0.40
+        
+        regime_code = getattr(self.regime, 'current_code', 0)
+        prev_regime = self.perf_metrics['prev_regime']
+        
+        if regime_code not in self.perf_metrics['regime_stats']:
+            self.perf_metrics['regime_stats'][regime_code] = {'pnl': [], 'trades': 0}
 
-        # Penalties (Normalized to RL-stable range)
-        p_spread     = -exec_result.spread_paid * 0.0002
-        p_drawdown   = -max(0, self.max_equity - self.account_equity) * 0.0001
-        p_overtrade  = -0.0001 if action != 0 else 0
-        
-        # Ruin penalty (Major shock for going bust)
-        p_ruin = -1.0 if self.account_equity < self.initial_equity * 0.90 else 0.0
+        if action != 0:
+            self.perf_metrics['total_trades'] += 1
+            self.perf_metrics['regime_stats'][regime_code]['trades'] += 1
+            if exec_result.realised_pnl > 0: self.perf_metrics['wins'] += 1
+            
+            # Transition tracking
+            if prev_regime is not None and prev_regime != regime_code:
+                trans_key = f"{prev_regime}_to_{regime_code}"
+                if trans_key not in self.perf_metrics['transition_stats']:
+                    self.perf_metrics['transition_stats'][trans_key] = {'pnl': [], 'trades': 0}
+                self.perf_metrics['transition_stats'][trans_key]['trades'] += 1
+                self.perf_metrics['transition_stats'][trans_key]['pnl'].append(exec_result.realised_pnl)
 
-        return r_pnl + p_spread + p_drawdown + p_overtrade + p_ruin
+        self.perf_metrics['pnl_100'].append(exec_result.realised_pnl)
+        self.perf_metrics['pnl_500'].append(exec_result.realised_pnl)
+        self.perf_metrics['pnl_global'].append(exec_result.realised_pnl)
+        self.perf_metrics['regime_stats'][regime_code]['pnl'].append(exec_result.realised_pnl)
+        self.perf_metrics['prev_regime'] = regime_code
 
-    def _get_obs(self) -> np.ndarray:
-        """Build the (SEQUENCE_LEN, N_FEATURES) observation tensor."""
-        start = self.step_count
-        end   = start + self.SEQUENCE_LEN
+        # 2. Bounded Costs with Selective Friction
+        vol = getattr(self.regime, 'current_volatility', 0.001)
+        vol_factor = np.clip(1.0 / (vol * 1000 + 0.1), 0.5, 5.0)
         
-        # Take pre-calculated tick features
-        tick_slice = self.tick_features[start:end] # (SEQ, 5)
+        base_friction = -0.05 * vol_factor if action != 0 else 0
         
-        obs = np.zeros((self.SEQUENCE_LEN, self.N_FEATURES), dtype=np.float32)
-        obs[:, :5] = tick_slice
+        # Selective Penalties
+        flip_penalty = -0.15 * vol_factor if action == 5 else 0
         
-        # Add stateful features
-        obs[:, 5] = self.position.size
-        obs[:, 6] = self.position.floating_pnl
-        obs[:, 7] = self.regime.current_code / 5.0
-        
-        return obs
+        # Churn Penalty (Holding < 10 steps)
+        churn_penalty = 0
+        if action != 0:
+            steps_since_last = self.step_count - self.perf_metrics['last_trade_step']
+            if steps_since_last < 10:
+                churn_penalty = -0.10 * (10 - steps_since_last) / 10.0
 
-    def _reset_state(self):
-        self.step_count      = 0
-        self.position        = Position()
-        self.account_equity  = self.config.get('initial_equity', 10_000.0)
-        self.initial_equity  = self.account_equity
-        self.max_equity      = self.account_equity
-        self.realised_pnl    = 0.0
-        self.recent_pnl_log  = []
-        self.ticks           = []
+        # Stability Tax (Excessive direction changes)
+        stability_tax = -0.10 * vol_factor if self.perf_metrics['consecutive_reversals'] > 2 else 0
+
+        # 3. Persistence Reward (Patience)
+        patience_reward = 0
+        if action == 0 and self.position.size != 0:
+            hold_dur = self.step_count - self.position.entry_time
+            patience_reward = min(hold_dur * 0.002, 0.03)
+
+        p_cost = (-exec_result.spread_paid * 1.0) + base_friction + flip_penalty + churn_penalty + stability_tax
+        
+        self.perf_metrics['moving_costs'].append(p_cost)
+        self.perf_metrics['moving_profit'].append(r_pnl)
+
+        # 4. Efficiency & Risk
+        current_dd = (self.max_equity - self.account_equity) / self.initial_equity
+        p_drawdown = -current_dd * 0.30
+
+        # --- PHASE 5.1: DEFENSIVE REFINEMENT ---
+        floating_pnl = self.position.floating_pnl
+        
+        # 1. Stop-Loss Avoidance Penalty
+        sl_penalty = 0.0
+        if self.position.size != 0 and floating_pnl < -10.0:
+            sl_penalty = -0.05
+            
+        # 2. Take-Profit Incentive
+        tp_bonus = 0.0
+        if action in [3, 4, 5] and floating_pnl > 5.0:
+            tp_bonus = 0.2
+            
+        total = r_pnl + p_cost + p_drawdown + patience_reward + sl_penalty + tp_bonus
+        
+        def calc_sharpe(history, n=30):
+            if len(history) < n: return 0.0
+            arr = np.array(history)
+            return np.mean(arr) / (np.std(arr) + 1e-6)
+
+        def get_dur_stat(p):
+            if not self.perf_metrics['hold_durations']: return 0
+            return np.percentile(self.perf_metrics['hold_durations'], p)
+
+        audit = {
+            'step_profit': r_pnl,
+            'moving_costs': np.mean(self.perf_metrics['moving_costs']),
+            'win_rate': self.perf_metrics['wins'] / max(1, self.perf_metrics['total_trades']),
+            'sharpe_global': calc_sharpe(self.perf_metrics['pnl_global'], 50),
+            'regime_sharpe': calc_sharpe(self.perf_metrics['regime_stats'][regime_code]['pnl'], 30),
+            'trade_freq': self.perf_metrics['total_trades'] / max(1, self.step_count / 100),
+            'churn_ratio': self.perf_metrics['path_audit']['flip'] / max(1, self.perf_metrics['total_trades']),
+            
+            # Duration & Churn Audit
+            'holding_duration': {
+                'p25': get_dur_stat(25),
+                'median': get_dur_stat(50),
+                'p75': get_dur_stat(75)
+            },
+            'path': self.perf_metrics['path_audit'],
+            'cost_mean': np.mean(self.perf_metrics['moving_costs']) if len(self.perf_metrics['moving_costs']) > 0 else 0
+        }
+        self.last_reward_audit = audit
+        return total, audit
+
+    def _get_obs(self):
+        idx = self.step_count + self.SEQUENCE_LEN - 1
+        t60 = self.tick_features[self.step_count : self.step_count + self.SEQUENCE_LEN].flatten()
+        mtf = self.state_builder.get_mtf_slice(idx)
+        metrics = self.state_builder.get_market_metrics(idx)
+        
+        if not hasattr(self, '_dim_audit_done'):
+            print(f"DIMENSION_AUDIT: T60={t60.shape}, MTF={mtf.shape}, Total={t60.shape[0]+mtf.shape[0]+10}", flush=True)
+            self._dim_audit_done = True
+
+        hour = self._get_hour(self.ticks[idx].get('time', 0))
+        scalars = np.array([
+            metrics['market_speed'] / 1000.0,
+            metrics['volatility'] / 100.0,
+            metrics['imbalance'],
+            self.position.size,
+            self.position.floating_pnl / 100.0,
+            self.regime.current_code / 10.0,
+            (self.account_equity / self.initial_equity) - 1.0,
+            np.sin(2 * np.pi * hour / 24.0),
+            np.cos(2 * np.pi * hour / 24.0),
+            self.exec.base_slippage * 1000.0
+        ], dtype=np.float32)
+
+        return np.concatenate([t60, mtf, scalars])
 
     def _update_position(self, result):
         self.position = result.new_position
@@ -191,3 +324,14 @@ class TradingEnvironment(gym.Env):
         self.max_equity = max(self.max_equity, self.account_equity)
         self.realised_pnl += result.realised_pnl
         self.recent_pnl_log.append(result.realised_pnl)
+
+    def _get_hour(self, t):
+        try: return time.gmtime(float(t)).tm_hour
+        except: return 0
+
+    def _get_session_code(self, t):
+        hour = self._get_hour(t)
+        if 0 <= hour < 7: return 1
+        if 8 <= hour < 12: return 2
+        if 13 <= hour < 17: return 3
+        return 4
