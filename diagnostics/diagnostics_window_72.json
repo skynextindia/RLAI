@@ -1,0 +1,25 @@
+{
+    "step": 884736,
+    "metrics": {
+        "equity": 9854.522656815981
+    },
+    "reward_audit": {
+        "step_profit": 0.0,
+        "moving_costs": -0.09172597292530614,
+        "win_rate": 0.01715686274509804,
+        "trade_freq": 20.298507462686565,
+        "expectancy": -0.35656211564732726,
+        "holding_duration": {
+            "p25": 3.0,
+            "median": 6.0,
+            "p75": 10.0
+        },
+        "path": {
+            "close": 137,
+            "flip": 111,
+            "hold": 1291,
+            "trade": 471,
+            "churn_event": 702
+        }
+    }
+}

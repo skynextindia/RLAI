@@ -205,15 +205,18 @@ class TradingEnvironment(gym.Env):
         if regime_code not in self.perf_metrics['regime_stats']:
             self.perf_metrics['regime_stats'][regime_code] = {'pnl': [], 'trades': 0}
 
-        if action != 0:
+        if exec_result.realised_pnl != 0:
             self.perf_metrics['total_trades'] += 1
+            self.perf_metrics['trade_metrics']['total'] += 1
+            self.perf_metrics['trade_metrics']['realized_pnl'].append(exec_result.realised_pnl)
+            if exec_result.realised_pnl > 0:
+                self.perf_metrics['trade_metrics']['wins'] += 1
+                self.perf_metrics['wins'] += 1
+            
+            # Regime-specific trade tracking
+            if regime_code not in self.perf_metrics['regime_stats']:
+                self.perf_metrics['regime_stats'][regime_code] = {'pnl': [], 'trades': 0}
             self.perf_metrics['regime_stats'][regime_code]['trades'] += 1
-            if exec_result.realised_pnl != 0:
-                self.perf_metrics['trade_metrics']['total'] += 1
-                self.perf_metrics['trade_metrics']['realized_pnl'].append(exec_result.realised_pnl)
-                if exec_result.realised_pnl > 0:
-                    self.perf_metrics['trade_metrics']['wins'] += 1
-                    self.perf_metrics['wins'] += 1
             
             # Transition tracking
             if prev_regime is not None and prev_regime != regime_code:
@@ -331,12 +334,11 @@ class TradingEnvironment(gym.Env):
 
     def _get_obs(self):
         idx = self.step_count + self.SEQUENCE_LEN - 1
-        t60 = self.tick_features[self.step_count : self.step_count + self.SEQUENCE_LEN].flatten()
         mtf = self.state_builder.get_mtf_slice(idx)
         metrics = self.state_builder.get_market_metrics(idx)
         
         if not hasattr(self, '_dim_audit_done'):
-            print(f"DIMENSION_AUDIT: T60={t60.shape}, MTF={mtf.shape}, Total={t60.shape[0]+mtf.shape[0]+10}", flush=True)
+            print(f"DIMENSION_AUDIT: MTF={mtf.shape}, Total={mtf.shape[0]+10}", flush=True)
             self._dim_audit_done = True
 
         hour = self._get_hour(self.ticks[idx].get('time', 0))
@@ -353,7 +355,7 @@ class TradingEnvironment(gym.Env):
             self.exec.base_slippage * 1000.0
         ], dtype=np.float32)
 
-        obs = np.concatenate([t60, mtf, scalars])
+        obs = np.concatenate([mtf, scalars])
         return np.nan_to_num(obs, nan=0.0, posinf=10.0, neginf=-10.0)
 
     def _update_position(self, result):

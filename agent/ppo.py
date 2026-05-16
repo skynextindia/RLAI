@@ -123,7 +123,7 @@ class PPOTrainer:
         for i in range(self.n_steps):
             obs_tensor = torch.FloatTensor(obs).unsqueeze(0).to(self.device)
             with torch.no_grad():
-                action, log_prob, value, _ = self.agent.get_action(
+                action, log_prob, value, ent = self.agent.get_action(
                     obs_tensor, threshold=self.config.get('confidence_threshold', 0.0)
                 )
 
@@ -140,9 +140,10 @@ class PPOTrainer:
             ep_reward += reward
             obs = next_obs
             self.current_step += 1
+            self.reward_history.append(reward) # Live capture for dashboard
 
             if action != 0 or i % 10 == 0:
-                self._broadcast_diagnostics({'entropy': 1.0}, obs_tensor)
+                self._broadcast_diagnostics({'entropy': ent.item(), 'loss': getattr(self, '_last_vloss', 0.0)}, obs_tensor)
 
             if done:
                 rollout['episode_rewards'].append(ep_reward)
@@ -188,6 +189,7 @@ class PPOTrainer:
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.agent.parameters(), self.max_grad)
                 self.optimizer.step()
+        self._last_vloss = value_loss.item()
         return {'loss': loss.item(), 'entropy': entropy.mean().item()}
 
     def _broadcast_diagnostics(self, losses, obs, heavy=False):

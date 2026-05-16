@@ -29,27 +29,17 @@ class MTFStateBuilder:
         
         for tf_key, freq in [('m1', '1min'), ('m5', '5min'), ('m15', '15min'), ('h1', 'h')]:
             resampled = self.df['mid'].resample(freq).ohlc().ffill()
-            vol = self.df['volume'].resample(freq).sum().fillna(0)
-            mtf = pd.concat([resampled, vol], axis=1)
+            mtf = pd.concat([resampled], axis=1)
             
-            # Channel 1: Log-Returns
+            # Channel 1: Log-Returns (High Alpha)
             mtf['returns'] = np.log(mtf['close'] / mtf['close'].shift(1)).fillna(0)
-            # Channel 2: Normalized Volume
-            mtf['vol_norm'] = np.log1p(mtf['volume']).fillna(0)
-            # Channel 3: VWAP-Distance (Normalized)
-            cum_vol_price = (mtf['close'] * mtf['volume']).cumsum()
-            cum_vol = mtf['volume'].cumsum() + 1e-9
-            mtf['vwap'] = cum_vol_price / cum_vol
-            # Use rolling z-score for vwap_dist to keep it near N(0,1)
-            mtf['vwap_dist'] = (mtf['close'] - mtf['vwap']) / (mtf['close'].rolling(100).std() + 1e-9)
-            mtf['vwap_dist'] = mtf['vwap_dist'].clip(-10, 10)
             
-            # Channel 4: Momentum (Clipped Log-Slope)
+            # Channel 2: Momentum (High Alpha)
             mtf['momentum'] = np.log(mtf['close'] / mtf['close'].shift(5).fillna(mtf['close'])) * 100
             mtf['momentum'] = mtf['momentum'].clip(-10, 10)
             
-            # Store 4-channel feature set (Ensure no NaNs)
-            self.mtf_data[tf_key] = mtf[['returns', 'vol_norm', 'vwap_dist', 'momentum']].fillna(0).values
+            # Store 2-channel feature set (Returns, Momentum)
+            self.mtf_data[tf_key] = mtf[['returns', 'momentum']].fillna(0).values
             self.df[f'{tf_key}_idx'] = self.df.index.floor(freq)
 
         self.tick_to_mtf_map = {}
@@ -67,7 +57,7 @@ class MTFStateBuilder:
             chunk = self.mtf_data[tf_key][start : mtf_idx + 1]
             
             if len(chunk) < window_size:
-                pad = np.zeros((window_size - len(chunk), 4), dtype=np.float32) # Updated to 4 channels
+                pad = np.zeros((window_size - len(chunk), 2), dtype=np.float32) # 2 channels
                 chunk = np.vstack([pad, chunk])
             features.append(chunk.flatten())
         return np.concatenate(features).astype(np.float32)
