@@ -40,7 +40,7 @@ class TradingEnvironment(gym.Env):
     """
 
     SEQUENCE_LEN = 60      
-    MTF_FEATURES = 710     
+    MTF_FEATURES = 120     
     MAX_STEPS    = 30000    
 
     def __init__(self, config: dict):
@@ -301,29 +301,17 @@ class TradingEnvironment(gym.Env):
         return np.clip(total_reward, -10.0, 10.0), audit
 
     def _get_obs(self):
-        idx = self.step_count + self.SEQUENCE_LEN - 1
-        mtf = self.state_builder.get_mtf_slice(idx)
-        metrics = self.state_builder.get_market_metrics(idx)
+        start_idx = self.step_count
+        end_idx = self.step_count + self.SEQUENCE_LEN
+        
+        # Extract sequence of shape (60, 2) consisting of [price_delta, spread]
+        seq_features = self.tick_features[start_idx:end_idx, [0, 2]]
+        obs = seq_features.flatten() # Shape (120,)
         
         if not hasattr(self, '_dim_audit_done'):
-            print(f"DIMENSION_AUDIT: MTF={mtf.shape}, Total={mtf.shape[0]+10}", flush=True)
+            print(f"DIMENSION_AUDIT: Observation space stripped to minimal features (Price Return + Spread), Shape={obs.shape}", flush=True)
             self._dim_audit_done = True
-
-        hour = self._get_hour(self.ticks[idx].get('time', 0))
-        scalars = np.array([
-            np.clip(metrics['market_speed'] / 1000.0, -10, 10),
-            np.clip(metrics['volatility'] / 100.0, -10, 10),
-            np.clip(metrics['imbalance'], -1, 1),
-            np.clip(self.position.size * 10.0, -1, 1),
-            np.clip(self.position.floating_pnl / 100.0, -20, 20),
-            self.regime.current_code / 10.0,
-            np.clip((self.account_equity / self.initial_equity) - 1.0, -1, 1),
-            np.sin(2 * np.pi * hour / 24.0),
-            np.cos(2 * np.pi * hour / 24.0),
-            self.exec.base_slippage * 1000.0
-        ], dtype=np.float32)
-
-        obs = np.concatenate([mtf, scalars])
+            
         return np.nan_to_num(obs, nan=0.0, posinf=10.0, neginf=-10.0)
 
     def _update_position(self, result):

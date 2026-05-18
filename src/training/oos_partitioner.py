@@ -25,9 +25,9 @@ def run_oos_validation():
     print(f">>> [OOS PROTOCOL v3.3] Institutional Validation (Device: {device}) <<<")
 
     # Initialize Environment & Agent
-    config['database']['conn_str'] = "postgresql://postgres:postgres@localhost:5432/axon_market" 
+    # config['database']['conn_str'] = "postgresql://postgres:postgres@localhost:5432/axon_market" 
     env = TradingEnvironment(config)
-    agent = TradingActorCritic(latent_dim=128, hidden_dim=256, n_actions=6).to(device)
+    agent = TradingActorCritic(latent_dim=128, hidden_dim=256, n_actions=3).to(device)
     
     weights_path = "models/ppo_agent_latest.pt"
     if os.path.exists(weights_path):

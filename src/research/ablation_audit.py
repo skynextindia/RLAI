@@ -13,16 +13,13 @@ def run_ablation_test(mask_name, start_idx, end_idx):
         config = yaml.safe_load(f)
     
     env = TradingEnvironment(config)
-    agent = TradingActorCritic(latent_dim=128)
+    agent = TradingActorCritic(latent_dim=128, n_actions=3)
     
     if os.path.exists('models/ppo_agent_latest.pt'):
         agent.load_state_dict(torch.load('models/ppo_agent_latest.pt', map_location='cpu'))
         print(">>> Model weights loaded.")
     
     obs, _ = env.reset()
-    total_trades = 0
-    realized_pnl = 0
-    wins = 0
     
     # Validation Loop (10,000 steps)
     for i in range(10000):
@@ -31,8 +28,9 @@ def run_ablation_test(mask_name, start_idx, end_idx):
             obs[start_idx:end_idx] = 0.0
             
         obs_tensor = torch.FloatTensor(obs).unsqueeze(0)
+        regime_tensor = torch.LongTensor([env.regime.current_code])
         with torch.no_grad():
-            action, _, _, _ = agent.get_action(obs_tensor, threshold=0.1)
+            action, _, _, _ = agent.get_action(obs_tensor, regime_tensor, threshold=0.10)
             
         obs, reward, done, _, info = env.step(action.item())
         
