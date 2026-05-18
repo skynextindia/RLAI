@@ -14,12 +14,17 @@ class TradingActorCritic(nn.Module):
         latent_dim:  int = 128,
         hidden_dim:  int = 256,
         n_actions:   int = 6,
+        n_regimes:   int = 6,
+        regime_emb_dim: int = 32,
     ):
         super().__init__()
         self.encoder = InstitutionalEncoder(latent_dim=latent_dim)
+        self.regime_embedding = nn.Embedding(num_embeddings=n_regimes, embedding_dim=regime_emb_dim)
+        
+        combined_dim = latent_dim + regime_emb_dim
 
         self.actor = nn.Sequential(
-            nn.Linear(latent_dim, hidden_dim),
+            nn.Linear(combined_dim, hidden_dim),
             nn.LayerNorm(hidden_dim),
             nn.GELU(),
             nn.Linear(hidden_dim, hidden_dim // 2),
@@ -28,7 +33,7 @@ class TradingActorCritic(nn.Module):
         )
 
         self.critic = nn.Sequential(
-            nn.Linear(latent_dim, hidden_dim),
+            nn.Linear(combined_dim, hidden_dim),
             nn.LayerNorm(hidden_dim),
             nn.GELU(),
             nn.Linear(hidden_dim, hidden_dim // 2),
@@ -49,15 +54,22 @@ class TradingActorCritic(nn.Module):
                 nn.init.orthogonal_(layer.weight, gain=1.0)
                 nn.init.zeros_(layer.bias)
 
-    def forward(self, obs: torch.Tensor):
+    def forward(self, obs: torch.Tensor, regime_code: torch.Tensor):
         # obs: (batch, seq_len, n_features)
         z   = self.encoder.get_state_vector(obs)   # (batch, latent_dim)
-        logits = self.actor(z)
-        value  = self.critic(z)
+        
+        regime_emb = self.regime_embedding(regime_code) # (batch, regime_emb_dim)
+        if regime_emb.dim() == 3:
+            regime_emb = regime_emb.squeeze(1)
+            
+        combined = torch.cat([z, regime_emb], dim=-1) # (batch, combined_dim)
+        
+        logits = self.actor(combined)
+        value  = self.critic(combined)
         return logits, value
 
-    def get_action(self, obs: torch.Tensor, threshold: float = 0.55):
-        logits, value = self.forward(obs)
+    def get_action(self, obs: torch.Tensor, regime_code: torch.Tensor, threshold: float = 0.55):
+        logits, value = self.forward(obs, regime_code)
         probs  = torch.softmax(logits, dim=-1)
         max_prob, max_action = torch.max(probs, dim=-1)
         
@@ -74,8 +86,8 @@ class TradingActorCritic(nn.Module):
         log_prob = dist.log_prob(action)
         return action, log_prob, value, dist.entropy()
 
-    def evaluate_action(self, obs: torch.Tensor, action: torch.Tensor):
-        logits, value = self.forward(obs)
+    def evaluate_action(self, obs: torch.Tensor, regime_code: torch.Tensor, action: torch.Tensor):
+        logits, value = self.forward(obs, regime_code)
         dist     = torch.distributions.Categorical(logits=logits)
         log_prob = dist.log_prob(action)
         entropy  = dist.entropy()

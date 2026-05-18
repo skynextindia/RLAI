@@ -7,6 +7,8 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 ZMQ_ADDR = "tcp://127.0.0.1:5555"
 current_pulse = {"status": "BRIDGE_SYNCED", "timestep": 0, "equity": 10000}
+equity_history_rolling = []
+last_processed_step = 0
 
 class TelemetryHandler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
@@ -22,7 +24,11 @@ class TelemetryHandler(BaseHTTPRequestHandler):
             self.send_header('Content-type', 'application/json')
             self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
-            self.wfile.write(json.dumps(current_pulse).encode())
+            
+            # Combine current pulse with rolling equity history
+            response_payload = dict(current_pulse)
+            response_payload['equity_history'] = equity_history_rolling
+            self.wfile.write(json.dumps(response_payload).encode())
         else:
             self.send_response(404)
             self.end_headers()
@@ -40,7 +46,7 @@ def run_server():
         print(f"HTTP_ERR: {e}", flush=True)
 
 def bridge():
-    global current_pulse
+    global current_pulse, equity_history_rolling, last_processed_step
     print("STARTING_BRIDGE_SERVICE...", flush=True)
     
     # 1. Start HTTP Server First
@@ -60,6 +66,38 @@ def bridge():
             msg_str = sock.recv_string()
             current_pulse = json.loads(msg_str)
             current_pulse['server_time'] = time.time()
+            
+            # Update equity history rolling buffer
+            step = current_pulse.get('step', 0)
+            equity = current_pulse.get('equity', 10000)
+            pnl = current_pulse.get('pnl', 0)
+            win_rate = current_pulse.get('win_rate', 0.0)
+            
+            # Reset history if a new episode starts (step goes backward)
+            if step < last_processed_step:
+                print("NEW_EPISODE_RESET: Clearing rolling equity history", flush=True)
+                equity_history_rolling = []
+                
+            last_processed_step = step
+            
+            if step > 0:
+                last_step = equity_history_rolling[-1]['step'] if equity_history_rolling else -1
+                is_trade_step = (step == current_pulse.get('recent_trades', [{}])[-1].get('step', -2) if current_pulse.get('recent_trades') else False)
+                
+                # Record if:
+                # 1. First step
+                # 2. Or advanced by at least 150 steps
+                # 3. Or a trade was completed at this exact step
+                if last_step == -1 or (step - last_step >= 150) or is_trade_step:
+                    if not equity_history_rolling or equity_history_rolling[-1]['step'] != step:
+                        equity_history_rolling.append({
+                            'step': step,
+                            'equity': equity,
+                            'pnl': pnl,
+                            'win_rate': float(win_rate) * 100
+                        })
+                        if len(equity_history_rolling) > 2000:
+                            equity_history_rolling = equity_history_rolling[-2000:]
         except zmq.Again:
             pass
         except Exception as e:

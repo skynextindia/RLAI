@@ -38,9 +38,9 @@ class RegimeStateMachine:
         drift    = abs(np.mean(deltas))
         spread_ratio = np.mean(spreads) / (spreads[0] + 1e-8)
         
-        if vol > 0.002:           return 5   # panic
+        if vol > 0.000150:       return 5   # panic
         if spread_ratio > 2.0:   return 4   # illiquid
-        if vol > 0.001:          return 2   # volatile
-        if drift > 0.0002:       return 0   # trending
-        if vol < 0.0003:         return 3   # accumulation
-        return 1                             # ranging
+        if vol > 0.000100:       return 2   # volatile
+        if drift > 0.000015:     return 0   # trending
+        if vol < 0.000060:       return 3   # accumulation
+        return 1                            # ranging

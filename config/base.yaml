@@ -1,11 +1,11 @@
-# config/base.yaml
+sim_symbol:     "EURUSDm"
 
 database:
   conn_str:     "postgresql://postgres:trading_local@localhost:5432/ticks"
   redis_url:    "redis://localhost:6379/0"
 
 data:
-  symbols:      ["BTCUSDm", "ETHUSDm"]
+  symbols:      ["EURUSDm"]
   seq_len:      60          # ticks of context
   n_features:   8
 
@@ -20,7 +20,7 @@ simulation:
   spread_spike_prob:  0.005
   gap_prob:           0.0005
   regime_window:      200
-  lot_size:           1
+  lot_size:           100000
 
 encoder:
   d_model:            128
@@ -38,8 +38,8 @@ pretrain:
   save_path:          "model/checkpoints/encoder_v1.pt"
 
 ppo:
-  lr:                 0.00003
-  clip_eps:           0.20
+  lr:                 0.000015
+  clip_eps:           0.10
   gamma:              0.99
   gae_lambda:         0.95
   ent_coef:           0.05
@@ -69,7 +69,7 @@ drift:
   expected_reward:    0.04
 
 live:
-  symbol:             "BTCUSDm"
-  baseline_spread:    0.0001
-  baseline_vol:       0.0008
+  symbol:             "EURUSDm"
+  baseline_spread:    0.00009
+  baseline_vol:       0.000013
   lot_size:           0.01    # MICRO LOTS ONLY

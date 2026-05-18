@@ -56,7 +56,7 @@ def run_train(symbol, config):
     env = TradingEnvironment(config)
         
     print("Initializing Institutional Agent...", flush=True)
-    agent = TradingActorCritic()
+    agent = TradingActorCritic(n_actions=3)
     
     print("Initializing Institutional PPO Trainer...", flush=True)
     trainer = PPOTrainer(agent, env, config['ppo'])

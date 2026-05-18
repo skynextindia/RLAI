@@ -18,10 +18,7 @@ class ChaosInjector:
 
     def transform(self, tick, step: int):
         """Apply stochastic market pathologies to the tick."""
-        tick = self._maybe_flash_crash(tick, step)
-        tick = self._maybe_stop_hunt(tick)
-        tick = self._maybe_spread_spike(tick)
-        tick = self._maybe_gap(tick)
+        # Disabled: news-based pathologies are handled by external AI News/Event layer
         return tick
 
     def _maybe_flash_crash(self, tick, step):

@@ -31,11 +31,16 @@ def run_oos_validation():
     
     weights_path = "models/ppo_agent_latest.pt"
     if os.path.exists(weights_path):
-        agent.load_state_dict(torch.load(weights_path, map_location=device))
-        print(f">>> Weights Verified: {weights_path}")
+        try:
+            agent.load_state_dict(torch.load(weights_path, map_location=device))
+            print(f">>> Weights Verified: {weights_path}")
+        except Exception as e:
+            print(f">>> [WARNING] Could not load checkpoint weights: {e}")
+            print(">>> Running validation with randomly initialized weights (Phase 5.6 clean slate).")
 
     # 2. Execution Audit State
     obs, _ = env.reset()
+    regime = env.regime.current_code
     results = {
         'rewards': [], 'pnl': [], 'pnl_ratio': [],
         'decomposition': {'pnl': 0, 'stability': 0, 'persistence': 0, 'risk': 0, 'bonus': 0},
@@ -46,14 +51,17 @@ def run_oos_validation():
     total_steps = 0
     while total_steps < 50000:
         obs, _ = env.reset()
+        regime = env.regime.current_code
         done = False
         while not done and total_steps < 50000:
             state_tensor = torch.tensor(obs, dtype=torch.float32).unsqueeze(0).to(device)
+            regime_tensor = torch.tensor([regime], dtype=torch.long).to(device)
             with torch.no_grad():
-                action, _, _, _ = agent.get_action(state_tensor)
+                action, _, _, _ = agent.get_action(state_tensor, regime_tensor)
                 action = action.item()
             
             obs, reward, done, _, info = env.step(action)
+            regime = info.get('regime', 0)
             total_steps += 1
             
             # Accumulate Audit Data

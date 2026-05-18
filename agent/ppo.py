@@ -32,7 +32,12 @@ class PPOTrainer:
         # Telemetry
         self.zmq_ctx = zmq.Context()
         self.socket  = self.zmq_ctx.socket(zmq.PUB)
-        self.socket.bind("tcp://*:5555")
+        try:
+            self.socket.bind("tcp://*:5555")
+            self.telemetry_active = True
+        except zmq.error.ZMQError:
+            print("[WARNING] Telemetry port 5555 already in use. Disabling telemetry broadcast.")
+            self.telemetry_active = False
 
         self.optimizer = optim.Adam(
             filter(lambda p: p.requires_grad, agent.parameters()),
@@ -60,8 +65,12 @@ class PPOTrainer:
         # 1. Load weights if existing
         ckpt = "models/ppo_agent_latest.pt"
         if os.path.exists(ckpt):
-            self.agent.load_state_dict(torch.load(ckpt, map_location=self.device))
-            print("Weights restored. Starting Institutional Confirmation Gate.")
+            try:
+                self.agent.load_state_dict(torch.load(ckpt, map_location=self.device))
+                print("Weights restored. Starting Institutional Confirmation Gate.")
+            except Exception as e:
+                print(f"[WARNING] Could not load checkpoint weights: {e}")
+                print("Starting training from scratch (Phase 5.6 clean slate).")
 
         # 2. Window Configuration (10k per window)
         window_size = 10000
@@ -108,6 +117,12 @@ class PPOTrainer:
             self._save_diagnostic_report(f"diagnostics_window_{window_idx+1}.json", torch.FloatTensor(obs).unsqueeze(0).to(self.device))
             
             print(f"WINDOW_AUDIT: Equity={end_equity:.2f}, Freq={window_report['trade_freq']:.1f}%, Sharpe={window_report['sharpe']:.2f}", flush=True)
+            
+            # Prevent RAM/CUDA accumulation leaks
+            import gc
+            gc.collect()
+            if "cuda" in str(self.device):
+                torch.cuda.empty_cache()
 
         self._print_final_gate_report()
 
@@ -116,15 +131,18 @@ class PPOTrainer:
             'obs': [], 'actions': [], 'log_probs': [],
             'values': [], 'rewards': [], 'dones': [],
             'episode_rewards': [],
+            'regimes': [],
         }
         obs = obs_start
+        regime = self.env.regime.current_code
         ep_reward = 0.0
 
         for i in range(self.n_steps):
             obs_tensor = torch.FloatTensor(obs).unsqueeze(0).to(self.device)
+            regime_tensor = torch.LongTensor([regime]).to(self.device)
             with torch.no_grad():
                 action, log_prob, value, ent = self.agent.get_action(
-                    obs_tensor, threshold=self.config.get('confidence_threshold', 0.0)
+                    obs_tensor, regime_tensor, threshold=self.config.get('confidence_threshold', 0.0)
                 )
 
             next_obs, reward, done, _, info = self.env.step(action.item())
@@ -136,9 +154,11 @@ class PPOTrainer:
             rollout['values'].append(value.item())
             rollout['rewards'].append(reward)
             rollout['dones'].append(done)
+            rollout['regimes'].append(regime)
 
             ep_reward += reward
             obs = next_obs
+            regime = info.get('regime', 0)
             self.current_step += 1
             self.reward_history.append(reward) # Live capture for dashboard
 
@@ -149,6 +169,7 @@ class PPOTrainer:
                 rollout['episode_rewards'].append(ep_reward)
                 ep_reward = 0.0
                 obs, _ = self.env.reset()
+                regime = self.env.regime.current_code
 
         return rollout, obs
 
@@ -173,12 +194,13 @@ class PPOTrainer:
         logp_t = torch.FloatTensor(rollout['log_probs']).to(self.device)
         adv_t = torch.FloatTensor(advantages).to(self.device)
         ret_t = torch.FloatTensor(returns).to(self.device)
+        reg_t = torch.LongTensor(rollout['regimes']).to(self.device)
         
         for _ in range(self.n_epochs):
             indices = torch.randperm(len(obs_t))
             for start in range(0, len(obs_t), self.batch_size):
                 idx = indices[start : start + self.batch_size]
-                log_probs, values, entropy = self.agent.evaluate_action(obs_t[idx], act_t[idx])
+                log_probs, values, entropy = self.agent.evaluate_action(obs_t[idx], reg_t[idx], act_t[idx])
                 ratio = torch.exp(log_probs - logp_t[idx])
                 surr1 = ratio * adv_t[idx]
                 surr2 = torch.clamp(ratio, 1-self.clip_eps, 1+self.clip_eps) * adv_t[idx]
@@ -193,6 +215,8 @@ class PPOTrainer:
         return {'loss': loss.item(), 'entropy': entropy.mean().item()}
 
     def _broadcast_diagnostics(self, losses, obs, heavy=False):
+        if not getattr(self, 'telemetry_active', True):
+            return
         audit = self.env.last_reward_audit
         
         # Calculate Pulse Frequency (Hz)
@@ -205,8 +229,8 @@ class PPOTrainer:
             'task': 'DIAGNOSTIC',
             'step': self.current_step,
             'total_steps': self.total_timesteps,
-            'equity': float(self.env.account_equity),
-            'pnl': float(self.env.account_equity - self.env.initial_equity),
+            'equity': float(self.env.account_equity + self.env.position.floating_pnl),
+            'pnl': float((self.env.account_equity + self.env.position.floating_pnl) - self.env.initial_equity),
             'entropy': float(losses.get('entropy', 1.0)),
             'value_loss': float(losses.get('loss', 0.0)),
             'fps': fps,
@@ -217,7 +241,8 @@ class PPOTrainer:
             'pos_pnl': float(self.env.position.floating_pnl),
             'convergence_stream': obs.squeeze().cpu().numpy()[::10].tolist() if hasattr(obs, 'squeeze') else [], # Sampled 1650-dim stream
             'reward_gradient': list(self.reward_history),
-            'audit': audit
+            'audit': audit,
+            'recent_trades': getattr(self.env, 'recent_trades', [])
         }
         self.socket.send_string(json.dumps(msg))
 
